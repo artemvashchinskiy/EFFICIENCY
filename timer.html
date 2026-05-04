@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Focus Timer</title>
+<link rel="icon" type="image/svg+xml" href='data:image/svg+xml,
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" rx="18" fill="%23d4d4d4"/>
+  <path d="M28 55 L45 72 L72 32" stroke="%232b2b2b" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>'>
+<script>
+const t = localStorage.getItem("login_time");
+
+if(!t || Date.now() - t > 10*60*60*1000){
+  location.href = "index.html";
+}
+</script>
+<style>
+:root {
+  --bg:#d4d4d4;
+  --panel:#e6e6e6;
+  --border:#999;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body{
+  margin:0;
+  font-family:Segoe UI;
+  background:var(--bg);
+  display:flex;
+  justify-content:center;
+  padding:20px;
+}
+.topbar{
+  display:flex;
+  align-items:center;
+  gap:10px;
+
+  padding:10px;
+  border-bottom:1px solid var(--border);
+  background:var(--panel);
+}
+
+.back{
+  width:32px;
+  height:32px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+
+  border:1px solid #888;
+  background:#eee;
+  cursor:pointer;
+  font-size:14px;
+}
+
+.title{
+  font-weight:600;
+  font-size:14px;
+}
+
+.spacer{
+  flex:1;
+}
+
+.app{
+  width:100%;
+  max-width:400px;
+  background:var(--panel);
+  border:1px solid var(--border);
+}
+
+.header{
+  padding:10px;
+  border-bottom:1px solid var(--border);
+  font-weight:bold;
+}
+
+.body{
+  padding:10px;
+}
+
+/* INPUT */
+input{
+  width:100%;
+  padding:8px;
+  margin-bottom:10px;
+  border:1px solid #888;
+}
+
+/* TIMER */
+.timer{
+  font-size:40px;
+  text-align:center;
+  margin:10px 0;
+}
+
+/* BUTTONS */
+.buttons{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:5px;
+  margin-bottom:10px;
+}
+
+button{
+  padding:6px;
+  border:1px solid #888;
+  background:#eee;
+  cursor:pointer;
+}
+
+.actions{
+  display:flex;
+  gap:5px;
+  margin-bottom:10px;
+}
+
+.actions button{
+  flex:1;
+}
+
+/* SESSIONS */
+.session{
+  border-top:1px solid var(--border);
+  padding:8px 0;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  font-size:13px;
+}
+
+.small{
+  font-size:11px;
+  opacity:0.8;
+}
+</style>
+</head>
+
+<body>
+
+<div class="app">
+  <!-- ===== MINI TOPBAR ===== -->
+  <div class="topbar">
+    <button class="back" onclick="location.href='index.html'">←</button>
+
+    <div class="title">Focus Timer</div>
+
+    <div class="spacer"></div>
+  </div>
+<div class="header">Focus Timer</div>
+
+<div class="body">
+
+<input id="sessionName" placeholder="Session name">
+
+<div class="timer" id="timer">00:00</div>
+
+<div class="buttons">
+  <button onclick="Timer.set(5)">5</button>
+  <button onclick="Timer.set(10)">10</button>
+  <button onclick="Timer.set(15)">15</button>
+  <button onclick="Timer.set(25)">25</button>
+  <button onclick="Timer.set(30)">30</button>
+  <button onclick="Timer.set(45)">45</button>
+  <button onclick="Timer.set(60)">60</button>
+  <button onclick="Timer.set(120)">2h</button>
+</div>
+
+<div class="actions">
+  <button onclick="Timer.start()">Start</button>
+  <button onclick="Timer.pause()">Pause</button>
+  <button onclick="Timer.finish()">Finish</button>
+</div>
+
+<div id="sessions"></div>
+
+</div>
+</div>
+
+<script>
+const State = {
+  sessions: JSON.parse(localStorage.getItem("sessions") || "[]"),
+  time: 0,
+  running: false,
+  startTime: null,
+  accumulated: 0
+};
+
+const Timer = {
+
+  set(min){
+    State.time = min * 60;
+    UI.renderTimer();
+  },
+
+  start(){
+    if(State.running) return;
+
+    State.running = true;
+    State.startTime = Date.now();
+
+    this.loop = setInterval(()=>{
+      const now = Date.now();
+      const delta = Math.floor((now - State.startTime)/1000);
+      const total = State.accumulated + delta;
+
+      UI.renderTimer(total);
+    }, 250);
+  },
+
+  pause(){
+    if(!State.running) return;
+
+    const now = Date.now();
+    const delta = Math.floor((now - State.startTime)/1000);
+
+    State.accumulated += delta;
+    State.running = false;
+
+    clearInterval(this.loop);
+  },
+
+  finish(){
+    this.pause();
+
+    const name = document.getElementById("sessionName").value || "Session";
+
+    const session = {
+      name,
+      planned: State.time,
+      actual: State.accumulated,
+      date: Date.now()
+    };
+
+    State.sessions.push(session);
+    localStorage.setItem("sessions", JSON.stringify(State.sessions));
+
+    State.accumulated = 0;
+    State.time = 0;
+
+    UI.renderTimer(0);
+    UI.renderSessions();
+  }
+};
+
+const UI = {
+
+  renderTimer(t=0){
+    const m = Math.floor(t/60);
+    const s = t%60;
+
+    document.getElementById("timer").textContent =
+      `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+  },
+
+  renderSessions(){
+    const el = document.getElementById("sessions");
+    el.innerHTML = "";
+
+    State.sessions.forEach((s,i)=>{
+
+      const row = document.createElement("div");
+      row.className = "session";
+
+      row.innerHTML = `
+        <div>
+          <div>${s.name}</div>
+          <div class="small">
+            planned: ${Math.floor(s.planned/60)}m |
+            used: ${Math.floor(s.actual/60)}m
+          </div>
+        </div>
+
+        <button onclick="UI.remove(${i})">Del</button>
+      `;
+
+      el.appendChild(row);
+    });
+  },
+
+  remove(index){
+    State.sessions.splice(index,1);
+    localStorage.setItem("sessions", JSON.stringify(State.sessions));
+    this.renderSessions();
+  },
+
+  init(){
+    this.renderTimer(0);
+    this.renderSessions();
+  }
+};
+
+UI.init();
+</script>
+
+</body>
+</html>

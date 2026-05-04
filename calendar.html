@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calendar Grid</title>
+<link rel="icon" type="image/svg+xml" href='data:image/svg+xml,
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" rx="18" fill="%23d4d4d4"/>
+  <path d="M28 55 L45 72 L72 32" stroke="%232b2b2b" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>'>
+<script>
+const t = localStorage.getItem("login_time");
+
+if(!t || Date.now() - t > 10*60*60*1000){
+  location.href = "index.html";
+}
+</script>
+<style>
+:root {
+  --bg:#d4d4d4;
+  --panel:#e6e6e6;
+  --border:#999;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body{
+  margin:0;
+  font-family:Segoe UI;
+  background:var(--bg);
+  display:flex;
+  justify-content:center;
+  padding:20px;
+}
+
+.app{
+  width:100%;
+  max-width:700px;
+  background:var(--panel);
+  border:1px solid var(--border);
+}
+
+.topbar{
+  display:flex;
+  align-items:center;
+  gap:10px;
+
+  padding:10px;
+  border-bottom:1px solid var(--border);
+  background:var(--panel);
+}
+
+.back{
+  width:32px;
+  height:32px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+
+  border:1px solid #888;
+  background:#eee;
+  cursor:pointer;
+  font-size:14px;
+}
+
+.title{
+  font-weight:600;
+  font-size:14px;
+}
+
+.spacer{
+  flex:1;
+}
+
+.header{
+  padding:10px;
+  border-bottom:1px solid var(--border);
+  font-weight:bold;
+}
+
+.body{
+  padding:10px;
+}
+
+/* GRID = 7x5 */
+.grid{
+  display:grid;
+  grid-template-columns:repeat(7,1fr);
+  gap:4px;
+}
+
+.cell{
+  width:100%;
+  min-height:40px;
+  font-size:12px;
+  padding:4px;
+  border:1px solid #888;
+  background:#f2f2f2;
+}
+
+/* controls */
+.actions{
+  margin-top:10px;
+  display:flex;
+  gap:5px;
+}
+
+button{
+  padding:6px;
+  border:1px solid #888;
+  background:#eee;
+  cursor:pointer;
+}
+
+/* ===== REAL CALENDAR ===== */
+.real-calendar{
+  margin-top:20px;
+  border-top:1px solid var(--border);
+  padding-top:10px;
+}
+
+.cal-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:8px;
+  font-weight:600;
+}
+
+.cal-header button{
+  padding:4px 8px;
+}
+
+.cal-grid{
+  display:grid;
+  grid-template-columns:repeat(7,1fr);
+  gap:4px;
+}
+
+.day{
+  padding:6px;
+  font-size:12px;
+  border:1px solid var(--border);
+  background:#f2f2f2;
+  text-align:center;
+  cursor:pointer;
+}
+
+.day:hover{
+  background:#e0e0e0;
+}
+
+.today{
+  background:#cfd8ff;
+  border-color:#6a7cff;
+}
+
+.empty{
+  background:transparent;
+  border:none;
+  cursor:default;
+}
+</style>
+</head>
+
+<body>
+
+<div class="app">
+  <!-- ===== MINI TOPBAR ===== -->
+  <div class="topbar">
+    <button class="back" onclick="location.href='index.html'">←</button>
+
+    <div class="title">Calendar Grid</div>
+
+    <div class="spacer"></div>
+  </div>
+
+  <div class="header">Calendar Grid (Excel Mode)</div>
+
+  <div class="body">
+
+    <div class="grid" id="grid"></div>
+
+    <div class="actions">
+      <button onclick="Grid.clear()">Clear</button>
+      <button onclick="Grid.export()">Export</button>
+      <button onclick="Grid.import()">Import</button>
+    </div>
+    <div class="real-calendar">
+      <div class="cal-header">
+        <button onclick="Cal.prev()">←</button>
+        <div id="calTitle"></div>
+        <button onclick="Cal.next()">→</button>
+      </div>
+      <div class="cal-grid" id="calGrid"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const COLS = 7;
+const ROWS = 5;
+const STORAGE_KEY = "calendar_grid";
+
+/* ===== STATE ===== */
+const State = {
+  data: JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]")
+};
+
+/* ===== GRID ENGINE ===== */
+const Grid = {
+
+  init(){
+    const g = document.getElementById("grid");
+
+    for(let i=0;i<COLS*ROWS;i++){
+      const input = document.createElement("input");
+      input.className = "cell";
+
+      input.value = State.data[i] || "";
+
+      input.addEventListener("blur",(e)=>{
+        let val = e.target.value;
+
+        if(val.startsWith("=")){
+          val = this.calc(val.slice(1));
+          e.target.value = val;
+        }
+
+        State.data[i] = e.target.value;
+        this.save();
+      });
+
+      g.appendChild(input);
+    }
+  },
+
+  /* ===== EXCEL LOGIC (kept) ===== */
+  calc(expr){
+    try{
+      if(!/^[0-9+\-*/(). ]+$/.test(expr)) return "ERR";
+      return Function(`return (${expr})`)();
+    }catch{
+      return "ERR";
+    }
+  },
+
+  /* ===== STORAGE ===== */
+  save(){
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(State.data));
+  },
+
+  clear(){
+    State.data = [];
+    localStorage.removeItem(STORAGE_KEY);
+    document.querySelectorAll(".cell").forEach(i=>i.value="");
+  },
+
+  export(){
+    navigator.clipboard.writeText(JSON.stringify(State.data));
+    alert("Copied");
+  },
+
+  import(){
+    const data = prompt("Paste JSON");
+    if(!data) return;
+
+    State.data = JSON.parse(data);
+    this.save();
+
+    document.querySelectorAll(".cell").forEach((el,i)=>{
+      el.value = State.data[i] || "";
+    });
+  }
+};
+
+Grid.init();
+
+/* ===== REAL CALENDAR ===== */
+const Cal = {
+  date: new Date(),
+
+  init(){
+    this.render();
+  },
+
+  render(){
+    const grid = document.getElementById("calGrid");
+    const title = document.getElementById("calTitle");
+
+    grid.innerHTML = "";
+
+    const year = this.date.getFullYear();
+    const month = this.date.getMonth();
+
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    title.textContent = this.date.toLocaleString("default", {
+      month: "long",
+      year: "numeric"
+    });
+
+    // empty cells
+    for(let i = 0; i < firstDay; i++){
+      const e = document.createElement("div");
+      e.className = "day empty";
+      grid.appendChild(e);
+    }
+
+    const today = new Date();
+
+    // days
+    for(let d = 1; d <= daysInMonth; d++){
+      const el = document.createElement("div");
+      el.className = "day";
+      el.textContent = d;
+
+      if(
+        d === today.getDate() &&
+        month === today.getMonth() &&
+        year === today.getFullYear()
+      ){
+        el.classList.add("today");
+      }
+
+      el.onclick = () => {
+        alert(`Selected: ${d}.${month+1}.${year}`);
+      };
+
+      grid.appendChild(el);
+    }
+  },
+
+  next(){
+    this.date.setMonth(this.date.getMonth() + 1);
+    this.render();
+  },
+
+  prev(){
+    this.date.setMonth(this.date.getMonth() - 1);
+    this.render();
+  }
+};
+
+Cal.init();
+</script>
+
+</body>
+</html>
