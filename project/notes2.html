@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Docs System</title>
+<link rel="icon" type="image/svg+xml" href='data:image/svg+xml,
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" rx="18" fill="%23d4d4d4"/>
+  <path d="M28 55 L45 72 L72 32" stroke="%232b2b2b" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>'>
+<script>
+const t = localStorage.getItem("login_time");
+
+if(!t || Date.now() - t > 10*60*60*1000){
+  location.href = "index.html";
+}
+</script>
+<style>
+:root {
+  --bg:#d4d4d4;
+  --panel:#e6e6e6;
+  --border:#999;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+
+body{
+  margin:0;
+  font-family:Segoe UI;
+  height:100vh;
+  display:flex;
+  flex-direction:column;
+  background:var(--bg);
+}
+.topbar{
+  display:flex;
+  align-items:center;
+  gap:10px;
+
+  padding:10px;
+  border-bottom:1px solid var(--border);
+  background:var(--panel);
+}
+
+.back{
+  width:32px;
+  height:32px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+
+  border:1px solid #888;
+  background:#eee;
+  cursor:pointer;
+  font-size:14px;
+}
+
+.title{
+  font-weight:600;
+  font-size:14px;
+}
+
+.spacer{
+  flex:1;
+}
+.layout{
+  flex:1;
+  display:flex;
+  overflow:hidden;
+}
+/* SIDEBAR */
+.sidebar{
+  width:260px;
+  border-right:1px solid var(--border);
+  padding:10px;
+  background:#cfcfcf;
+  display:flex;
+  flex-direction:column;
+}
+
+button{
+  padding:6px;
+  border:1px solid #888;
+  background:var(--panel);
+  cursor:pointer;
+  margin-bottom:5px;
+  width:100%;
+}
+
+button.small{
+  width:auto;
+  padding:3px 6px;
+  margin-left:5px;
+}
+
+/* DOC LIST */
+.docs{
+  margin-top:10px;
+  overflow:auto;
+}
+
+.doc{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  border:1px solid var(--border);
+  background:var(--panel);
+  padding:6px;
+  margin-bottom:6px;
+  cursor:pointer;
+}
+
+.doc:hover{
+  background:#ddd;
+}
+
+/* MAIN */
+.main{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+}
+
+.toolbar{
+  height:40px;
+  display:flex;
+  align-items:center;
+  padding:0 10px;
+  border-bottom:1px solid var(--border);
+}
+
+.editor{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+}
+
+textarea{
+  flex:1;
+  border:none;
+  padding:10px;
+  font-size:14px;
+  resize:none;
+  outline:none;
+  background:white;
+}
+
+input{
+  border:none;
+  border-bottom:1px solid var(--border);
+  padding:8px;
+  font-size:14px;
+  outline:none;
+}
+input:disabled,
+textarea:disabled{
+  background:#ddd;
+  cursor:not-allowed;
+}
+</style>
+</head>
+
+<body>
+  <!-- ===== MINI TOPBAR ===== -->
+<div class="topbar">
+  <button class="back" onclick="location.href='index.html'">←</button>
+  <div class="title">Docs System</div>
+  <div class="spacer"></div>
+</div>
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <button onclick="createDoc()">➕ New Document</button>
+    <div class="docs" id="docs"></div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="toolbar">
+      <button class="small" onclick="saveDoc()">💾 Save</button>
+    </div>
+
+    <div class="editor">
+      <input id="title" placeholder="Document title...">
+      <textarea id="text" placeholder="Start writing..."></textarea>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let currentId = null;
+let editorLocked = true;
+
+/* ===== LOCK SYSTEM ===== */
+function setEditorLocked(state){
+  editorLocked = state;
+
+  const title = document.getElementById("title");
+  const text = document.getElementById("text");
+
+  if(!title || !text) return;
+
+  title.disabled = state;
+  text.disabled = state;
+
+  title.style.opacity = state ? 0.5 : 1;
+  text.style.opacity = state ? 0.5 : 1;
+}
+
+/* init locked state */
+setEditorLocked(true);
+
+/* ===== LOAD ===== */
+function loadDocs() {
+  const docs = JSON.parse(localStorage.getItem('docs') || '{}');
+  const container = document.getElementById('docs');
+
+  if(!container) return;
+
+  container.innerHTML = '';
+
+  Object.keys(docs).forEach(id => {
+    const el = document.createElement('div');
+    el.className = 'doc';
+
+    const title = docs[id]?.title || 'Untitled';
+
+    el.innerHTML = `
+      <span>${title}</span>
+      <div>
+        <button class="small" onclick="event.stopPropagation(); deleteDoc('${id}')">🗑</button>
+      </div>
+    `;
+
+    el.onclick = () => openDoc(id);
+
+    container.appendChild(el);
+  });
+}
+
+/* ===== CREATE ===== */
+function createDoc() {
+  currentId = 'doc_' + Date.now();
+
+  const title = document.getElementById('title');
+  const text = document.getElementById('text');
+
+  if(!title || !text) return;
+
+  title.value = '';
+  text.value = '';
+
+  setEditorLocked(false);
+}
+
+/* ===== OPEN ===== */
+function openDoc(id) {
+  const docs = JSON.parse(localStorage.getItem('docs') || '{}');
+
+  const doc = docs[id];
+  if(!doc) return;
+
+  currentId = id;
+
+  document.getElementById('title').value = doc.title || '';
+  document.getElementById('text').value = doc.text || '';
+
+  setEditorLocked(false);
+}
+
+/* ===== SAVE ===== */
+function saveDoc() {
+  if(!currentId) return;
+
+  const docs = JSON.parse(localStorage.getItem('docs') || '{}');
+
+  const titleEl = document.getElementById('title');
+  const textEl = document.getElementById('text');
+
+  if(!titleEl || !textEl) return;
+
+  docs[currentId] = {
+    title: titleEl.value || 'Untitled',
+    text: textEl.value || ''
+  };
+
+  localStorage.setItem('docs', JSON.stringify(docs));
+  loadDocs();
+}
+
+/* ===== DELETE ===== */
+function deleteDoc(id) {
+  if(!confirm('Delete this document?')) return;
+
+  const docs = JSON.parse(localStorage.getItem('docs') || '{}');
+  delete docs[id];
+
+  localStorage.setItem('docs', JSON.stringify(docs));
+
+  if(currentId === id){
+    currentId = null;
+
+    const title = document.getElementById('title');
+    const text = document.getElementById('text');
+
+    if(title) title.value = '';
+    if(text) text.value = '';
+
+    setEditorLocked(true);
+  }
+
+  loadDocs();
+}
+
+/* ===== INIT ===== */
+loadDocs();
+</script>
+
+</body>
+</html>
