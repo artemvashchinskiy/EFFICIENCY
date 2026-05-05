@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Focus Timer</title>
+<link rel="icon" type="image/svg+xml" href='data:image/svg+xml,
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" rx="18" fill="%23d4d4d4"/>
+  <path d="M28 55 L45 72 L72 32" stroke="%232b2b2b" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>'>
+<script>
+const t = localStorage.getItem("login_time");
+
+if(!t || Date.now() - t > 10*60*60*1000){
+  location.href = "index.html";
+}
+</script>
+<style>
+:root {
+  --bg:#d4d4d4;
+  --panel:#e6e6e6;
+  --border:#999;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body{
+  margin:0;
+  font-family:Segoe UI;
+  background:var(--bg);
+  display:flex;
+  justify-content:center;
+  padding:20px;
+}
+.topbar{
+  display:flex;
+  align-items:center;
+  gap:10px;
+
+  padding:10px;
+  border-bottom:1px solid var(--border);
+  background:var(--panel);
+}
+
+.back{
+  width:32px;
+  height:32px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+
+  border:1px solid #888;
+  background:#eee;
+  cursor:pointer;
+  font-size:14px;
+}
+
+.title{
+  font-weight:600;
+  font-size:14px;
+}
+
+.spacer{
+  flex:1;
+}
+
+.app{
+  width:100%;
+  max-width:400px;
+  background:var(--panel);
+  border:1px solid var(--border);
+}
+
+.header{
+  padding:10px;
+  border-bottom:1px solid var(--border);
+  font-weight:bold;
+}
+
+.body{
+  padding:10px;
+}
+
+/* INPUT */
+input{
+  width:100%;
+  padding:8px;
+  margin-bottom:10px;
+  border:1px solid #888;
+}
+
+/* TIMER */
+.timer{
+  font-size:40px;
+  text-align:center;
+  margin:10px 0;
+}
+
+/* BUTTONS */
+.buttons{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:5px;
+  margin-bottom:10px;
+}
+
+button{
+  padding:6px;
+  border:1px solid #888;
+  background:#eee;
+  cursor:pointer;
+}
+
+.actions{
+  display:flex;
+  gap:5px;
+  margin-bottom:10px;
+}
+
+.actions button{
+  flex:1;
+}
+
+/* SESSIONS */
+.session{
+  border-top:1px solid var(--border);
+  padding:8px 0;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  font-size:13px;
+}
+
+.small{
+  font-size:11px;
+  opacity:0.8;
+}
+</style>
+</head>
+
+<body>
+
+<div class="app">
+  <!-- ===== MINI TOPBAR ===== -->
+  <div class="topbar">
+    <button class="back" onclick="location.href='index.html'">←</button>
+
+    <div class="title">Focus Timer</div>
+
+    <div class="spacer"></div>
+  </div>
+<div class="header">Focus Timer</div>
+
+<div class="body">
+
+<input id="sessionName" placeholder="Session name">
+
+<div class="timer" id="timer">00:00</div>
+
+<div class="buttons">
+  <button onclick="Timer.set(5)">5</button>
+  <button onclick="Timer.set(10)">10</button>
+  <button onclick="Timer.set(15)">15</button>
+  <button onclick="Timer.set(25)">25</button>
+  <button onclick="Timer.set(30)">30</button>
+  <button onclick="Timer.set(45)">45</button>
+  <button onclick="Timer.set(60)">60</button>
+  <button onclick="Timer.set(120)">2h</button>
+</div>
+
+<div class="actions">
+  <button onclick="Timer.start()">Start</button>
+  <button onclick="Timer.pause()">Pause</button>
+  <button onclick="Timer.finish()">Finish</button>
+</div>
+
+<div id="sessions"></div>
+
+</div>
+</div>
+
+<script>
+/* ===== STORE ===== */
+const Store = {
+  key: "focusOS",
+
+  get(){
+    return JSON.parse(localStorage.getItem(this.key)) || {
+      todos: [],
+      docs: {},
+      grid: [],
+      sessions: [],
+      timer: null
+    };
+  },
+
+  set(data){
+    localStorage.setItem(this.key, JSON.stringify(data));
+  },
+
+  update(fn){
+    const data = this.get();
+    fn(data);
+    this.set(data);
+  }
+};
+
+/* ===== STATE ===== */
+const State = {
+  running: false,
+  startTime: null,
+  accumulated: 0,
+  planned: 0,
+  finished: false,
+  flashLoop: null
+};
+
+/* ===== TIMER ===== */
+const Timer = {
+
+  set(min){
+    State.planned = min * 60;
+    State.finished = false;
+    UI.renderTimer(0);
+  },
+
+  start(){
+    if(State.running) return;
+
+    State.running = true;
+    State.finished = false;
+    State.startTime = Date.now();
+
+    this.saveLive();
+
+    this.loop = setInterval(()=>{
+      const t = this.getCurrentTime();
+
+      UI.renderTimer(t);
+
+      if(State.planned && t >= State.planned){
+        this.triggerFinish();
+      }
+
+    }, 500);
+  },
+
+  pause(){
+    if(!State.running) return;
+
+    State.accumulated = this.getCurrentTime();
+    State.running = false;
+
+    clearInterval(this.loop);
+    this.saveLive();
+  },
+
+  finish(){
+    this.pause();
+
+    const name = document.getElementById("sessionName")?.value || "Session";
+
+    Store.update(data => {
+      data.sessions.push({
+        name,
+        planned: State.planned,
+        actual: State.accumulated,
+        date: Date.now()
+      });
+
+      data.timer = null;
+    });
+
+    State.accumulated = 0;
+    State.planned = 0;
+    State.startTime = null;
+    State.finished = false;
+
+    clearInterval(State.flashLoop);
+    document.title = "Focus OS";
+
+    UI.renderTimer(0);
+    UI.renderSessions();
+  },
+
+  triggerFinish(){
+    if(State.finished) return; // 🔒 hard lock
+    State.finished = true;
+
+    this.pause();
+
+    /* ===== 1. SYSTEM NOTIFICATION ===== */
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification("⏱ Time is up!", {
+        body: "Return to Focus OS"
+      });
+    }
+
+    /* ===== 2. TITLE FLASH ===== */
+    let flag = true;
+    State.flashLoop = setInterval(()=>{
+      document.title = flag ? "⏱ TIME UP!" : "Focus OS";
+      flag = !flag;
+    }, 800);
+
+    /* ===== 3. VISUAL FEEDBACK ===== */
+    document.body.style.background = "#ffdddd";
+
+    /* ===== 4. TRY OPEN TAB (optional, not critical) ===== */
+    try{
+      window.open("timer.html?done=1", "_blank");
+    }catch(e){}
+
+    /* ===== 5. ALERT ONLY IF ACTIVE TAB ===== */
+    setTimeout(()=>{
+      if(document.hasFocus()){
+        alert("Time is up!");
+      }
+    }, 300);
+  },
+
+  getCurrentTime(){
+    if(!State.running) return State.accumulated;
+
+    const delta = Math.floor((Date.now() - State.startTime)/1000);
+    return State.accumulated + delta;
+  },
+
+  saveLive(){
+    Store.update(data => {
+      data.timer = {
+        running: State.running,
+        startTime: State.startTime,
+        accumulated: State.accumulated,
+        planned: State.planned,
+        finished: State.finished
+      };
+    });
+  },
+
+  restore(){
+    const data = Store.get().timer;
+    if(!data) return;
+
+    State.running = data.running;
+    State.startTime = data.startTime;
+    State.accumulated = data.accumulated;
+    State.planned = data.planned;
+    State.finished = data.finished || false;
+
+    if(State.finished){
+      this.triggerFinish(); // restore finished state
+      return;
+    }
+
+    if(State.running){
+      this.loop = setInterval(()=>{
+        const t = this.getCurrentTime();
+
+        UI.renderTimer(t);
+
+        if(State.planned && t >= State.planned){
+          this.triggerFinish();
+        }
+
+      }, 500);
+    }
+
+    UI.renderTimer(this.getCurrentTime());
+  }
+};
+
+/* ===== UI ===== */
+const UI = {
+
+  renderTimer(t=0){
+    const m = Math.floor(t/60);
+    const s = t % 60;
+
+    const el = document.getElementById("timer");
+    if(el){
+      el.textContent =
+        `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+    }
+  },
+
+  renderSessions(){
+    const el = document.getElementById("sessions");
+    if(!el) return;
+
+    el.innerHTML = "";
+
+    const sessions = Store.get().sessions;
+
+    sessions.forEach((s,i)=>{
+      const row = document.createElement("div");
+      row.className = "session";
+
+      row.innerHTML = `
+        <div>
+          <div>${s.name}</div>
+          <div class="small">
+            planned: ${Math.floor(s.planned/60)}m |
+            used: ${Math.floor(s.actual/60)}m
+          </div>
+        </div>
+
+        <button onclick="UI.remove(${i})">✕</button>
+      `;
+
+      el.appendChild(row);
+    });
+  },
+
+  remove(index){
+    Store.update(data => {
+      data.sessions.splice(index,1);
+    });
+
+    this.renderSessions();
+  },
+
+  init(){
+    /* ask permission once */
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+
+    /* detect completed tab */
+    if(location.search.includes("done")){
+      setTimeout(()=>alert("Session complete"), 200);
+    }
+
+    Timer.restore();
+    this.renderSessions();
+  }
+};
+
+/* ===== INIT ===== */
+UI.init();
+</script>
+
+</body>
+</html>
