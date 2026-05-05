@@ -1,8 +1,0 @@
-calendar.html
-timer.html
-todo.html
-notes.html
-notes2.html
-index.html -youre here
-
-P.S. hahahahahahaha
