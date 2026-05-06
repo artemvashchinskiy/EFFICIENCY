@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Focus OS</title>
+
+<link rel="icon" type="image/svg+xml" href='data:image/svg+xml,
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" rx="18" fill="%23d4d4d4"/>
+  <path d="M28 55 L45 72 L72 32"
+        stroke="%232b2b2b"
+        stroke-width="9"
+        fill="none"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+</svg>'>
+
+<style>
+:root{
+  --bg:#d4d4d4;
+  --panel:#e6e6e6;
+  --border:#999;
+  --text:#1f1f1f;
+}
+
+*{box-sizing:border-box;}
+
+body{
+  margin:0;
+  font-family:Segoe UI, system-ui;
+  background:var(--bg);
+  color:var(--text);
+}
+
+/* ===== TOPBAR ===== */
+.topbar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:12px 16px;
+  background:var(--panel);
+  border-bottom:1px solid var(--border);
+}
+
+.right{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+@media (max-width:500px){
+  .topbar{
+    flex-direction:column;
+    align-items:flex-start;
+  }
+
+  .right{
+    display:flex;
+    width:100%;
+    justify-content:flex-end;
+  }
+}
+
+button{
+  padding:6px 10px;
+  border:1px solid #888;
+  background:#eee;
+  cursor:pointer;
+}
+
+/* ===== DASHBOARD ===== */
+.dashboard{
+  padding:26px;
+  max-width:1100px;
+  margin:0 auto;
+}
+
+/* cards grid */
+.grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+  gap:16px;
+}
+
+/* improved cards */
+.card{
+  background:linear-gradient(#ececec,#dedede);
+  border:1px solid var(--border);
+  padding:34px 12px;
+  text-align:center;
+  cursor:pointer;
+  transition:.2s;
+  font-size:14px;
+  letter-spacing:0.2px;
+}
+
+.card:hover{
+  transform:translateY(-3px);
+  filter:brightness(0.96);
+  box-shadow:0 6px 18px rgba(0,0,0,0.08);
+}
+
+/* ===== IO BAR (IMPORTANT UPGRADE) ===== */
+.io-bar{
+  margin-top:26px;
+  display:flex;
+  justify-content:center;
+  gap:14px;
+  padding:18px;
+  border-top:1px solid var(--border);
+}
+
+/* export/import buttons PRO LOOK */
+.io-bar button{
+  padding:10px 16px;
+  border:1px solid #777;
+  background:linear-gradient(#ffffff,#eaeaea);
+  cursor:pointer;
+  transition:.2s;
+  font-weight:500;
+  min-width:160px;
+}
+@media (max-width:500px){
+  .io-bar button{
+    min-width: 70px;
+  }
+}
+.io-bar button:hover{
+  transform:translateY(-2px);
+  background:#fff;
+  box-shadow:0 6px 14px rgba(0,0,0,0.12);
+}
+
+/* small label feel */
+.io-bar button:first-child{
+  color:#2b2b2b;
+}
+
+/* ===== LOCK OVERLAY (UNCHANGED VISUAL CORE) ===== */
+.overlay{
+  position:fixed;
+  inset:0;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  z-index:9999;
+}
+
+.overlay.closed{ pointer-events:auto; }
+.overlay.open{ pointer-events:none; }
+
+/* ===== GATES ===== */
+.gate{
+  position:absolute;
+  top:0;
+  width:50%;
+  height:100%;
+  background:linear-gradient(90deg,#bdbdbd,#9c9c9c);
+  z-index:10000;
+  transition:transform 1.6s ease;
+}
+
+.left{ left:0; }
+.right{ right:0; }
+
+.overlay.closed .left{ transform:translateX(0); }
+.overlay.closed .right{ transform:translateX(0); }
+
+.overlay.open .left{ transform:translateX(-100%); }
+.overlay.open .right{ transform:translateX(100%); }
+
+/* ===== MODAL ===== */
+.modal{
+  position:relative;
+  z-index:10001;
+  background:#eaeaea;
+  border:1px solid #888;
+  padding:22px;
+  width:320px;
+  text-align:center;
+  opacity:0;
+  transform:scale(0.92);
+  transition:.3s;
+}
+
+.overlay.closed .modal{
+  opacity:1;
+  transform:scale(1);
+}
+
+.modal h1{
+  letter-spacing:3px;
+  margin-bottom:12px;
+  font-size:16px;
+}
+
+.modal input{
+  width:100%;
+  padding:9px;
+  margin:10px 0;
+  border:1px solid #888;
+  background:#fff;
+}
+
+.small{
+  font-size:12px;
+  opacity:0.7;
+}
+
+/* ===== LOCK EFFECT ===== */
+body.locked .dashboard{
+  pointer-events:none;
+  user-select:none;
+  filter:blur(2px);
+}
+</style>
+</head>
+
+<body>
+
+<!-- ================= TOPBAR ================= -->
+<div class="topbar">
+  <div>
+    🧠 Focus OS
+    <div id="date"></div>
+  </div>
+
+  <div class="right">
+    <div id="clock"></div>
+    <button id="authBtn">🔒</button>
+    <button id="logoutBtn">Logout</button>
+  </div>
+</div>
+
+<!-- ================= DASHBOARD ================= -->
+<div class="dashboard">
+
+  <div class="grid">
+    <div class="card" onclick="go('calendar.html')">📅 Calendar</div>
+    <div class="card" onclick="go('timer.html')">⏱ Timer</div>
+    <div class="card" onclick="go('todo.html')">✅ Todo</div>
+    <div class="card" onclick="go('notes.html')">📝 Notes</div>
+    <div class="card" onclick="go('notes2.html')">🗂 Notes 2</div>
+  </div>
+
+  <div class="io-bar">
+    <button onclick="exportAll()">⬇ Export</button>
+    <button onclick="importAll()">⬆ Import</button>
+  </div>
+
+</div>
+
+<!-- ================= OVERLAY ================= -->
+<div class="overlay closed" id="overlay">
+
+  <div class="gate left"></div>
+  <div class="gate right"></div>
+
+  <div class="modal">
+    <h2>FOCUS OS</h2>
+
+    <input id="pass" type="password" placeholder="Password">
+
+    <button id="actionBtn"></button>
+
+    <div id="msg" style="font-size:12px;opacity:0.7"></div>
+  </div>
+
+</div>
+
+<script>
+
+/* ================= STORE ================= */
+const Store = {
+  key:"focusOS",
+
+  get(){
+    return JSON.parse(localStorage.getItem(this.key) || "{}");
+  },
+
+  set(data){
+    localStorage.setItem(this.key, JSON.stringify(data));
+  }
+};
+
+/* ================= ELEMENTS ================= */
+let overlay, pass, msg, btn, authBtn, logoutBtn;
+
+/* ================= AUTH ================= */
+const Auth = {
+
+  /* ===== LOCK SETTINGS ===== */
+  limits: [0, 30*60*1000, 24*60*60*1000], // 0 → 30min → 24h
+
+  getState(){
+    return {
+      failCount: +localStorage.getItem("failCount") || 0,
+      lockUntil: +localStorage.getItem("lockUntil") || 0,
+      lockLevel: +localStorage.getItem("lockLevel") || 0
+    };
+  },
+
+  setState(s){
+    localStorage.setItem("failCount", s.failCount);
+    localStorage.setItem("lockUntil", s.lockUntil);
+    localStorage.setItem("lockLevel", s.lockLevel);
+  },
+
+  key:"focus_pass",
+  session:"login_time",
+
+  isLocked(){
+    const t = localStorage.getItem(this.session);
+    if(!t) return true;
+    return Date.now() - t > 10 * 60 * 60 * 1000;
+  },
+
+  /* ===== OPEN (LOCK SCREEN) ===== */
+  open(){
+    document.body.classList.add("locked");
+
+    overlay.style.display = "flex";
+
+    requestAnimationFrame(()=>{
+      overlay.classList.remove("open");
+      overlay.classList.add("closed");
+    });
+
+    const exists = localStorage.getItem(this.key);
+
+    btn.textContent = exists ? "Login" : "Create";
+    btn.onclick = () => exists ? this.login() : this.register();
+  },
+
+  /* ===== CLOSE ===== */
+  close(){
+    overlay.classList.remove("closed");
+    overlay.classList.add("open");
+
+    setTimeout(()=>{
+      document.body.classList.remove("locked");
+      overlay.style.display = "none";
+    }, 600);
+  },
+
+  /* ===== REGISTER ===== */
+  register(){
+    const p = pass.value.trim();
+
+    if(!p){
+      msg.textContent = "Enter password";
+      return;
+    }
+
+    localStorage.setItem(this.key, p);
+
+    // reset lock state on first setup
+    this.setState({ failCount:0, lockUntil:0, lockLevel:0 });
+
+    this.success();
+  },
+
+  /* ===== LOGIN (FIXED CORE) ===== */
+  login(){
+    const state = this.getState();
+
+    // if locked
+    if(Date.now() < state.lockUntil){
+      const min = Math.ceil((state.lockUntil - Date.now()) / 60000);
+      msg.textContent = `Locked. Try in ${min} min`;
+      return;
+    }
+
+    const p = pass.value;
+    const saved = localStorage.getItem(this.key);
+
+    if(p === saved){
+      // success → reset lock system
+      this.setState({ failCount:0, lockUntil:0, lockLevel:0 });
+      this.success();
+    } else {
+      state.failCount++;
+
+      if(state.failCount >= 5){
+        // cycle 30min ↔ 24h
+        state.lockLevel = state.lockLevel === 1 ? 2 : 1;
+
+        const duration = this.limits[state.lockLevel];
+
+        state.lockUntil = Date.now() + duration;
+        state.failCount = 0;
+
+        const min = Math.ceil(duration / 60000);
+        msg.textContent = `Too many attempts. Locked ${min} min`;
+      } else {
+        msg.textContent = `Wrong password (${state.failCount}/5)`;
+      }
+
+      this.setState(state);
+    }
+  },
+
+  /* ===== SUCCESS ===== */
+  success(){
+    localStorage.setItem(this.session, Date.now());
+    this.close();
+  },
+
+  /* ===== LOGOUT ===== */
+  logout(){
+    localStorage.removeItem(this.session);
+
+    overlay.style.display = "flex";
+    overlay.classList.remove("open");
+    overlay.classList.add("closed");
+
+    setTimeout(()=>{
+      location.reload();
+    }, 400);
+  },
+
+  /* ===== CHECK ===== */
+  check(){
+    const state = this.getState();
+
+    // still locked by fails
+    if(Date.now() < state.lockUntil){
+      this.open();
+
+      const min = Math.ceil((state.lockUntil - Date.now()) / 60000);
+      msg.textContent = `Locked. Try in ${min} min`;
+      return;
+    }
+
+    const t = localStorage.getItem(this.session);
+
+    if(!t){
+      this.open();
+      return;
+    }
+
+    if(Date.now() - t > 10*60*60*1000){
+      this.logout();
+      return;
+    }
+
+    // unlocked state
+    overlay.classList.remove("closed");
+    overlay.classList.add("open");
+    overlay.style.display = "none";
+    document.body.classList.remove("locked");
+  }
+};
+
+/* ================= CLOCK ================= */
+function tick(){
+  const d = new Date();
+  document.getElementById("clock").textContent = d.toLocaleTimeString();
+  document.getElementById("date").textContent = d.toDateString();
+}
+setInterval(tick, 1000);
+
+/* ================= NAV ================= */
+function go(p){ location.href = p; }
+
+/* ================= EXPORT ================= */
+function exportAll(){
+  const data = Store.get();
+
+  const now = new Date();
+  const pad = n => String(n).padStart(2, "0");
+
+  const filename = `focus-os-${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}.json`;
+
+  const blob = new Blob(
+    [JSON.stringify(data, null, 2)],
+    { type: "application/json" }
+  );
+
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+
+  URL.revokeObjectURL(url);
+}
+
+/* ================= IMPORT ================= */
+function importAll(){
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "application/json";
+
+  input.onchange = e => {
+    const file = e.target.files[0];
+    if(!file) return;
+
+    const reader = new FileReader();
+
+    reader.onload = ev => {
+      try{
+        Store.set(JSON.parse(ev.target.result));
+        location.reload();
+      } catch {
+        alert("Invalid file");
+      }
+    };
+
+    reader.readAsText(file);
+  };
+
+  input.click();
+}
+
+/* ================= INIT ================= */
+window.addEventListener("DOMContentLoaded", () => {
+
+  overlay = document.getElementById("overlay");
+  pass = document.getElementById("pass");
+  msg = document.getElementById("msg");
+  btn = document.getElementById("actionBtn");
+  authBtn = document.getElementById("authBtn");
+  logoutBtn = document.getElementById("logoutBtn");
+
+  authBtn.onclick = () => Auth.open();
+  logoutBtn.onclick = () => Auth.logout();
+
+  tick();
+  Auth.check();
+});
+
+</script>
+
+</body>
+</html>
