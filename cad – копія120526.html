@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>CAD Lite</title>
+
+<style>
+:root{
+  --bg:#d4d4d4;
+  --panel:#e6e6e6;
+  --border:#999;
+}
+
+*{
+  box-sizing:border-box;
+}
+
+body{
+  margin:0;
+  overflow:hidden;
+  font-family:Segoe UI;
+  background:var(--bg);
+}
+
+.toolbar{
+  position:fixed;
+  top:0;
+  left:0;
+  right:0;
+  height:52px;
+
+  display:flex;
+  align-items:center;
+  gap:6px;
+
+  padding:6px;
+
+  background:var(--panel);
+  border-bottom:1px solid var(--border);
+
+  z-index:20;
+}
+
+.toolbar button,
+.toolbar select,
+.toolbar input{
+  height:34px;
+  border:1px solid #888;
+  background:#f2f2f2;
+  padding:4px 8px;
+}
+
+.layers-bar{
+  display:flex;
+  gap:4px;
+  align-items:center;
+}
+
+canvas{
+  position:absolute;
+  inset:52px 0 0 0;
+  background:white;
+  cursor:crosshair;
+}
+
+.snap-indicator{
+  position:fixed;
+  width:10px;
+  height:10px;
+  border:2px solid #ff3300;
+  border-radius:50%;
+  pointer-events:none;
+  z-index:30;
+  display:none;
+}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+
+  <button onclick="CAD.setMode('select')">Select</button>
+  <button onclick="CAD.setMode('line')">Line</button>
+  <button onclick="CAD.setMode('circle')">Circle</button>
+  <button onclick="CAD.setMode('text')">Text</button>
+  <button onclick="CAD.setMode('dimension')">Dimension</button>
+
+  <select id="gridSelect">
+    <option value="1">1 mm</option>
+    <option value="10" selected>10 mm</option>
+    <option value="100">100 mm</option>
+  </select>
+
+  <label>
+    Text
+    <input id="textSize" type="number" value="3.5" step="0.1" style="width:70px">
+  </label>
+
+  <label>
+    Rot
+    <input id="textRotate" type="number" value="0" step="5" style="width:60px">
+  </label>
+
+  <div class="layers-bar">
+    <select id="layerSelect"></select>
+
+    <button id="addLayer">+</button>
+    <button id="toggleLayer">👁</button>
+    <button id="colorLayer">🎨</button>
+  </div>
+
+</div>
+
+<canvas id="cad"></canvas>
+
+<div class="snap-indicator" id="snapIndicator"></div>
+
+<script>
+const CAD = {
+
+  canvas:null,
+  ctx:null,
+
+  mode:"line",
+
+  gridStep:10,
+
+  zoom:1,
+
+  temp:[],
+
+  selected:[],
+
+  dragSelect:false,
+  moving:false,
+
+  dragStart:null,
+  dragEnd:null,
+
+  moveOffset:{x:0,y:0},
+
+  snapPoint:null,
+
+  textSize:3.5,
+  textRotation:0,
+
+  layer:"0",
+  color:"#000000",
+
+  layers:[
+    {
+      name:"0",
+      color:"#000000",
+      visible:true
+    },
+    {
+      name:"Dimensions",
+      color:"#0066ff",
+      visible:true
+    },
+    {
+      name:"Text",
+      color:"#008800",
+      visible:true
+    }
+  ],
+
+  objects:[],
+
+  SNAP:{
+    endpoint:true,
+    midpoint:true,
+    intersection:true,
+    nearest:true,
+    threshold:12
+  },
+
+  init(){
+
+    this.canvas = document.getElementById("cad");
+    this.ctx = this.canvas.getContext("2d");
+
+    this.resize();
+
+    window.addEventListener("resize",()=>this.resize());
+
+    this.bind();
+
+    this.render();
+
+    this.renderLayers();
+
+    document.getElementById("gridSelect")
+      .onchange = e=>{
+        this.gridStep = Number(e.target.value);
+        this.render();
+      };
+
+    document.getElementById("textSize")
+      .onchange = e=>{
+        this.textSize = Number(e.target.value);
+      };
+
+    document.getElementById("textRotate")
+      .onchange = e=>{
+        this.textRotation = Number(e.target.value);
+      };
+
+    document.getElementById("layerSelect")
+      .onchange = e=>{
+        this.setLayer(e.target.value);
+      };
+
+    document.getElementById("addLayer")
+      .onclick = ()=>this.addLayer();
+
+    document.getElementById("toggleLayer")
+      .onclick = ()=>this.toggleLayer();
+
+    document.getElementById("colorLayer")
+      .onclick = ()=>this.colorLayer();
+  },
+
+  resize(){
+
+    this.canvas.width = window.innerWidth;
+    this.canvas.height = window.innerHeight - 52;
+  },
+
+  setMode(m){
+
+    this.mode = m;
+    this.temp = [];
+  },
+
+  bind(){
+
+    this.canvas.addEventListener("mousedown",e=>{
+
+      const p = this.mouse(e);
+      const s = this.snap(p);
+
+      if(this.mode === "select"){
+
+        const hit = this.hit(s.x,s.y);
+
+        if(hit){
+
+          this.selected = [hit];
+
+          this.moving = true;
+
+          this.moveOffset = s;
+        }
+
+        else{
+
+          this.selected = [];
+
+          this.dragSelect = true;
+
+          this.dragStart = s;
+          this.dragEnd = s;
+        }
+
+        this.render();
+
+        return;
+      }
+
+      if(this.mode === "line"){
+
+        this.temp.push(s);
+
+        if(this.temp.length === 2){
+
+          this.objects.push({
+            type:"line",
+            x1:this.temp[0].x,
+            y1:this.temp[0].y,
+            x2:this.temp[1].x,
+            y2:this.temp[1].y,
+            color:this.color,
+            width:2,
+            layer:this.layer
+          });
+
+          this.temp = [];
+
+          this.render();
+        }
+      }
+
+      else if(this.mode === "circle"){
+
+        this.temp.push(s);
+
+        if(this.temp.length === 2){
+
+          const r = this.dist(
+            this.temp[0],
+            this.temp[1]
+          );
+
+          this.objects.push({
+            type:"circle",
+            x:this.temp[0].x,
+            y:this.temp[0].y,
+            r,
+            color:this.color,
+            width:2,
+            layer:this.layer
+          });
+
+          this.temp = [];
+
+          this.render();
+        }
+      }
+
+      else if(this.mode === "text"){
+
+        const value = prompt("Text:");
+
+        if(!value) return;
+
+        this.objects.push({
+          type:"text",
+          x:s.x,
+          y:s.y,
+          text:value,
+          size:this.textSize,
+          rotation:this.textRotation,
+          color:this.color,
+          layer:this.layer
+        });
+
+        this.render();
+      }
+
+      else if(this.mode === "dimension"){
+
+        this.temp.push(s);
+
+        if(this.temp.length === 2){
+
+          const a = this.temp[0];
+          const b = this.temp[1];
+
+          const dx = Math.abs(b.x-a.x);
+          const dy = Math.abs(b.y-a.y);
+
+          this.objects.push({
+            type:"dimension",
+            x1:a.x,
+            y1:a.y,
+            x2:b.x,
+            y2:b.y,
+            mode:dx>=dy ? "horizontal":"vertical",
+            color:this.color,
+            layer:this.layer
+          });
+
+          this.temp = [];
+
+          this.render();
+        }
+      }
+    });
+
+    this.canvas.addEventListener("mousemove",e=>{
+
+      const p = this.mouse(e);
+
+      const s = this.snap(p);
+
+      this.snapPoint = s;
+
+      this.showSnap(s);
+
+      if(this.dragSelect){
+
+        this.dragEnd = s;
+
+        this.render();
+      }
+
+      if(this.moving){
+
+        const dx = s.x - this.moveOffset.x;
+        const dy = s.y - this.moveOffset.y;
+
+        this.selected.forEach(o=>{
+
+          if(o.type === "line" || o.type === "dimension"){
+
+            o.x1 += dx;
+            o.y1 += dy;
+
+            o.x2 += dx;
+            o.y2 += dy;
+          }
+
+          else if(o.type === "circle"){
+
+            o.x += dx;
+            o.y += dy;
+          }
+
+          else if(o.type === "text"){
+
+            o.x += dx;
+            o.y += dy;
+          }
+        });
+
+        this.moveOffset = s;
+
+        this.render();
+      }
+    });
+
+    window.addEventListener("mouseup",()=>{
+
+      if(this.dragSelect){
+
+        this.selectBox();
+
+        this.dragSelect = false;
+      }
+
+      this.moving = false;
+
+      this.render();
+    });
+  },
+
+  mouse(e){
+
+    const r = this.canvas.getBoundingClientRect();
+
+    return {
+      x:e.clientX-r.left,
+      y:e.clientY-r.top
+    };
+  },
+
+  snap(p){
+
+    const pts = [];
+
+    const g = this.gridStep;
+
+    pts.push({
+      x:Math.round(p.x/g)*g,
+      y:Math.round(p.y/g)*g,
+      type:"grid"
+    });
+
+    this.objects.forEach(o=>{
+
+      if(o.type === "line"){
+
+        if(this.SNAP.endpoint){
+
+          pts.push({x:o.x1,y:o.y1});
+          pts.push({x:o.x2,y:o.y2});
+        }
+
+        if(this.SNAP.midpoint){
+
+          pts.push({
+            x:(o.x1+o.x2)/2,
+            y:(o.y1+o.y2)/2
+          });
+        }
+      }
+
+      if(o.type === "circle"){
+
+        pts.push({x:o.x,y:o.y});
+
+        pts.push({x:o.x+o.r,y:o.y});
+        pts.push({x:o.x-o.r,y:o.y});
+
+        pts.push({x:o.x,y:o.y+o.r});
+        pts.push({x:o.x,y:o.y-o.r});
+      }
+    });
+
+    const ints = this.intersections();
+
+    pts.push(...ints);
+
+    let best = null;
+    let min = Infinity;
+
+    pts.forEach(c=>{
+
+      const d = this.dist(p,c);
+
+      if(
+        d < this.SNAP.threshold &&
+        d < min
+      ){
+        min = d;
+        best = c;
+      }
+    });
+
+    return best || p;
+  },
+
+  intersections(){
+
+    const pts = [];
+
+    const lines = this.objects
+      .filter(o=>o.type==="line");
+
+    for(let i=0;i<lines.length;i++){
+
+      for(let j=i+1;j<lines.length;j++){
+
+        const a = lines[i];
+        const b = lines[j];
+
+        const p = this.intersect(
+          a.x1,a.y1,a.x2,a.y2,
+          b.x1,b.y1,b.x2,b.y2
+        );
+
+        if(p) pts.push(p);
+      }
+    }
+
+    return pts;
+  },
+
+  intersect(x1,y1,x2,y2,x3,y3,x4,y4){
+
+    const d =
+      (x1-x2)*(y3-y4) -
+      (y1-y2)*(x3-x4);
+
+    if(d===0) return null;
+
+    const xi =
+      ((x3-x4)*(x1*y2-y1*x2) -
+      (x1-x2)*(x3*y4-y3*x4))/d;
+
+    const yi =
+      ((y3-y4)*(x1*y2-y1*x2) -
+      (y1-y2)*(x3*y4-y3*x4))/d;
+
+    return {x:xi,y:yi};
+  },
+
+  dist(a,b){
+
+    return Math.hypot(
+      a.x-b.x,
+      a.y-b.y
+    );
+  },
+
+  drawGrid(){
+
+    const ctx = this.ctx;
+
+    ctx.strokeStyle = "#eee";
+    ctx.lineWidth = 1;
+
+    for(let x=0;x<this.canvas.width;x+=this.gridStep){
+
+      ctx.beginPath();
+      ctx.moveTo(x,0);
+      ctx.lineTo(x,this.canvas.height);
+      ctx.stroke();
+    }
+
+    for(let y=0;y<this.canvas.height;y+=this.gridStep){
+
+      ctx.beginPath();
+      ctx.moveTo(0,y);
+      ctx.lineTo(this.canvas.width,y);
+      ctx.stroke();
+    }
+  },
+
+  render(){
+
+    const ctx = this.ctx;
+
+    ctx.clearRect(
+      0,
+      0,
+      this.canvas.width,
+      this.canvas.height
+    );
+
+    this.drawGrid();
+
+    this.objects.forEach(o=>{
+
+      if(!this.visible(o.layer)) return;
+
+      ctx.strokeStyle = o.color;
+      ctx.fillStyle = o.color;
+      ctx.lineWidth = o.width || 1;
+
+      if(o.type === "line"){
+
+        ctx.beginPath();
+
+        ctx.moveTo(o.x1,o.y1);
+        ctx.lineTo(o.x2,o.y2);
+
+        ctx.stroke();
+      }
+
+      else if(o.type === "circle"){
+
+        ctx.beginPath();
+
+        ctx.arc(
+          o.x,
+          o.y,
+          o.r,
+          0,
+          Math.PI*2
+        );
+
+        ctx.stroke();
+      }
+
+      else if(o.type === "text"){
+
+        ctx.save();
+
+        ctx.translate(o.x,o.y);
+
+        ctx.rotate(
+          o.rotation*Math.PI/180
+        );
+
+        const px = o.size*3.78;
+
+        ctx.font = `${px}px Arial`;
+
+        ctx.fillText(o.text,0,0);
+
+        ctx.restore();
+      }
+
+      else if(o.type === "dimension"){
+
+        this.drawDimension(o);
+      }
+    });
+
+    this.renderSelection();
+  },
+
+  drawDimension(d){
+
+    const ctx = this.ctx;
+
+    const off = 30;
+
+    if(d.mode === "horizontal"){
+
+      const y =
+        Math.min(d.y1,d.y2)-off;
+
+      this.line(d.x1,d.y1,d.x1,y);
+      this.line(d.x2,d.y2,d.x2,y);
+
+      this.line(d.x1,y,d.x2,y);
+
+      this.arrow(d.x1,y,180);
+      this.arrow(d.x2,y,0);
+
+      const mm =
+        Math.abs(d.x2-d.x1);
+
+      ctx.fillText(
+        mm.toFixed(0),
+        (d.x1+d.x2)/2,
+        y-5
+      );
+    }
+
+    else{
+
+      const x =
+        Math.max(d.x1,d.x2)+off;
+
+      this.line(d.x1,d.y1,x,d.y1);
+      this.line(d.x2,d.y2,x,d.y2);
+
+      this.line(x,d.y1,x,d.y2);
+
+      this.arrow(x,d.y1,-90);
+      this.arrow(x,d.y2,90);
+
+      ctx.save();
+
+      ctx.translate(
+        x+14,
+        (d.y1+d.y2)/2
+      );
+
+      ctx.rotate(-Math.PI/2);
+
+      ctx.fillText(
+        Math.abs(d.y2-d.y1).toFixed(0),
+        0,
+        0
+      );
+
+      ctx.restore();
+    }
+  },
+
+  line(x1,y1,x2,y2){
+
+    const ctx = this.ctx;
+
+    ctx.beginPath();
+
+    ctx.moveTo(x1,y1);
+    ctx.lineTo(x2,y2);
+
+    ctx.stroke();
+  },
+
+  arrow(x,y,a){
+
+    const ctx = this.ctx;
+
+    const s = 8;
+
+    ctx.save();
+
+    ctx.translate(x,y);
+
+    ctx.rotate(a*Math.PI/180);
+
+    ctx.beginPath();
+
+    ctx.moveTo(0,0);
+    ctx.lineTo(-s,-s/2);
+
+    ctx.moveTo(0,0);
+    ctx.lineTo(-s,s/2);
+
+    ctx.stroke();
+
+    ctx.restore();
+  },
+
+  hit(x,y){
+
+    for(const o of this.objects){
+
+      if(o.type === "line"){
+
+        const d = this.segDist(
+          x,y,
+          o.x1,o.y1,
+          o.x2,o.y2
+        );
+
+        if(d<8) return o;
+      }
+
+      if(o.type === "circle"){
+
+        const d = Math.abs(
+          Math.hypot(x-o.x,y-o.y)-o.r
+        );
+
+        if(d<8) return o;
+      }
+
+      if(o.type === "text"){
+
+        if(
+          x>o.x &&
+          x<o.x+80 &&
+          y<o.y &&
+          y>o.y-20
+        ){
+          return o;
+        }
+      }
+    }
+
+    return null;
+  },
+
+  segDist(px,py,x1,y1,x2,y2){
+
+    const A = px-x1;
+    const B = py-y1;
+
+    const C = x2-x1;
+    const D = y2-y1;
+
+    const dot = A*C+B*D;
+
+    const len = C*C+D*D;
+
+    let t = dot/len;
+
+    t = Math.max(0,Math.min(1,t));
+
+    const xx = x1+t*C;
+    const yy = y1+t*D;
+
+    return Math.hypot(px-xx,py-yy);
+  },
+
+  selectBox(){
+
+    const minX = Math.min(
+      this.dragStart.x,
+      this.dragEnd.x
+    );
+
+    const maxX = Math.max(
+      this.dragStart.x,
+      this.dragEnd.x
+    );
+
+    const minY = Math.min(
+      this.dragStart.y,
+      this.dragEnd.y
+    );
+
+    const maxY = Math.max(
+      this.dragStart.y,
+      this.dragEnd.y
+    );
+
+    this.selected = [];
+
+    this.objects.forEach(o=>{
+
+      let x=0;
+      let y=0;
+
+      if(o.type==="line"){
+        x=o.x1;
+        y=o.y1;
+      }
+
+      else if(o.type==="circle"){
+        x=o.x;
+        y=o.y;
+      }
+
+      else if(o.type==="text"){
+        x=o.x;
+        y=o.y;
+      }
+
+      if(
+        x>=minX &&
+        x<=maxX &&
+        y>=minY &&
+        y<=maxY
+      ){
+        this.selected.push(o);
+      }
+    });
+  },
+
+  renderSelection(){
+
+    const ctx = this.ctx;
+
+    if(this.dragSelect){
+
+      ctx.strokeStyle = "#4a90ff";
+
+      ctx.setLineDash([5,5]);
+
+      ctx.strokeRect(
+        this.dragStart.x,
+        this.dragStart.y,
+        this.dragEnd.x-this.dragStart.x,
+        this.dragEnd.y-this.dragStart.y
+      );
+
+      ctx.setLineDash([]);
+    }
+
+    this.selected.forEach(o=>{
+
+      ctx.strokeStyle = "#4a90ff";
+      ctx.lineWidth = 2;
+
+      if(o.type==="line"){
+
+        this.line(
+          o.x1,o.y1,
+          o.x2,o.y2
+        );
+      }
+
+      if(o.type==="circle"){
+
+        ctx.beginPath();
+
+        ctx.arc(
+          o.x,
+          o.y,
+          o.r,
+          0,
+          Math.PI*2
+        );
+
+        ctx.stroke();
+      }
+    });
+  },
+
+  visible(name){
+
+    const l = this.layers
+      .find(v=>v.name===name);
+
+    return l ? l.visible : true;
+  },
+
+  renderLayers(){
+
+    const s =
+      document.getElementById("layerSelect");
+
+    s.innerHTML = "";
+
+    this.layers.forEach(l=>{
+
+      const o =
+        document.createElement("option");
+
+      o.value = l.name;
+      o.textContent = l.name;
+
+      s.appendChild(o);
+    });
+  },
+
+  addLayer(){
+
+    const name = prompt("Layer:");
+
+    if(!name) return;
+
+    const color =
+      prompt("HEX color","#000000");
+
+    this.layers.push({
+      name,
+      color,
+      visible:true
+    });
+
+    this.renderLayers();
+  },
+
+  setLayer(name){
+
+    this.layer = name;
+
+    const l = this.layers
+      .find(v=>v.name===name);
+
+    if(l){
+      this.color = l.color;
+    }
+  },
+
+  toggleLayer(){
+
+    const l = this.layers
+      .find(v=>v.name===this.layer);
+
+    if(!l) return;
+
+    l.visible = !l.visible;
+
+    this.render();
+  },
+
+  colorLayer(){
+
+    const l = this.layers
+      .find(v=>v.name===this.layer);
+
+    if(!l) return;
+
+    const c =
+      prompt("Color:",l.color);
+
+    if(!c) return;
+
+    l.color = c;
+
+    this.color = c;
+
+    this.render();
+  },
+
+  showSnap(p){
+
+    const el =
+      document.getElementById("snapIndicator");
+
+    el.style.display = "block";
+
+    el.style.left =
+      `${p.x-5}px`;
+
+    el.style.top =
+      `${p.y+47}px`;
+  }
+};
+
+window.addEventListener(
+  "load",
+  ()=>CAD.init()
+);
+</script>
+
+</body>
+</html>

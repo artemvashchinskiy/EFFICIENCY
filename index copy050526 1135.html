@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Focus OS</title>
+
+<link rel="icon" type="image/svg+xml" href='data:image/svg+xml,
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" rx="18" fill="%23d4d4d4"/>
+  <path d="M28 55 L45 72 L72 32"
+        stroke="%232b2b2b"
+        stroke-width="9"
+        fill="none"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+</svg>'>
+
+<style>
+:root{
+  --bg:#d4d4d4;
+  --panel:#e6e6e6;
+  --border:#999;
+}
+
+*{box-sizing:border-box;}
+
+body{
+  margin:0;
+  font-family:Segoe UI;
+  background:var(--bg);
+}
+
+/* ================= TOPBAR ================= */
+.topbar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:12px 16px;
+  background:var(--panel);
+  border-bottom:1px solid var(--border);
+}
+
+.right{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+button{
+  padding:6px 10px;
+  border:1px solid #888;
+  background:#eee;
+  cursor:pointer;
+}
+
+/* ================= DASHBOARD ================= */
+.dashboard{
+  padding:20px;
+}
+
+.grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+  gap:14px;
+}
+
+.card{
+  background:var(--panel);
+  border:1px solid var(--border);
+  padding:30px 10px;
+  text-align:center;
+  cursor:pointer;
+  transition:.2s;
+}
+
+.card:hover{
+  transform:translateY(-2px);
+  filter:brightness(0.95);
+}
+
+/* ================= EXPORT BAR ================= */
+.io-bar{
+  margin-top:20px;
+  display:flex;
+  justify-content:center;
+  gap:12px;
+  padding:14px;
+}
+
+.io-bar button{
+  padding:8px 14px;
+  border:1px solid #888;
+  background:linear-gradient(#fff,#eee);
+}
+
+/* ================= LOCK SCREEN ================= */
+.overlay{
+  position:fixed;
+  inset:0;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  z-index:9999;
+  opacity:1;
+  pointer-events:all;
+}
+
+/* gates */
+.gate{
+  position:absolute;
+  top:0;
+  width:50%;
+  height:100%;
+  background:linear-gradient(90deg,#bbb,#999);
+  transition:transform .6s ease;
+}
+
+.left{left:0;}
+.right{right:0;}
+
+/* CLOSED = blocked */
+.overlay.closed .left{ transform:translateX(0); }
+.overlay.closed .right{ transform:translateX(0); }
+
+/* OPEN = slide away */
+.overlay.open .left{ transform:translateX(-100%); }
+.overlay.open .right{ transform:translateX(100%); }
+
+/* modal */
+.modal{
+  position:relative;
+  z-index:2;
+  background:#eaeaea;
+  border:1px solid #888;
+  padding:20px;
+  width:300px;
+  text-align:center;
+}
+
+.modal input{
+  width:100%;
+  padding:8px;
+  margin:10px 0;
+}
+
+/* lock blur */
+body.locked .dashboard{
+  filter:blur(2px);
+  pointer-events:none;
+}
+</style>
+</head>
+
+<body>
+
+<!-- ================= TOPBAR ================= -->
+<div class="topbar">
+  <div>
+    🧠 Focus OS
+    <div id="date"></div>
+  </div>
+
+  <div class="right">
+    <div id="clock"></div>
+    <button id="authBtn">🔒</button>
+    <button id="logoutBtn">Logout</button>
+  </div>
+</div>
+
+<!-- ================= DASHBOARD ================= -->
+<div class="dashboard">
+
+  <div class="grid">
+    <div class="card" onclick="go('calendar.html')">📅 Calendar</div>
+    <div class="card" onclick="go('timer.html')">⏱ Timer</div>
+    <div class="card" onclick="go('todo.html')">✅ Todo</div>
+    <div class="card" onclick="go('notes.html')">📝 Notes</div>
+    <div class="card" onclick="go('notes2.html')">🗂 Notes 2</div>
+  </div>
+
+  <div class="io-bar">
+    <button onclick="exportAll()">⬇ Export</button>
+    <button onclick="importAll()">⬆ Import</button>
+  </div>
+
+</div>
+
+<!-- ================= OVERLAY ================= -->
+<div class="overlay closed" id="overlay">
+
+  <div class="gate left"></div>
+  <div class="gate right"></div>
+
+  <div class="modal">
+    <h2>FOCUS OS</h2>
+
+    <input id="pass" type="password" placeholder="Password">
+
+    <button id="actionBtn"></button>
+
+    <div id="msg" style="font-size:12px;opacity:0.7"></div>
+  </div>
+
+</div>
+
+<script>
+
+/* ================= STORE ================= */
+const Store = {
+  key:"focusOS",
+
+  get(){
+    return JSON.parse(localStorage.getItem(this.key) || "{}");
+  },
+
+  set(data){
+    localStorage.setItem(this.key, JSON.stringify(data));
+  }
+};
+
+/* ================= ELEMENTS ================= */
+let overlay, pass, msg, btn, authBtn, logoutBtn;
+
+/* ================= AUTH ================= */
+const Auth = {
+  key:"focus_pass",
+  session:"login_time",
+
+  isLocked(){
+    const t = localStorage.getItem(this.session);
+    if(!t) return true;
+    return Date.now() - t > 10 * 60 * 60 * 1000;
+  },
+
+  showLock(){
+    document.body.classList.add("locked");
+    overlay.style.display = "flex";
+  },
+
+  hideLock(){
+    document.body.classList.remove("locked");
+    overlay.style.display = "none";
+  },
+
+  open(){
+    this.showLock();
+
+    const exists = localStorage.getItem(this.key);
+
+    btn.textContent = exists ? "Login" : "Create";
+
+    btn.onclick = () => {
+      exists ? this.login() : this.register();
+    };
+  },
+
+  register(){
+    const p = pass.value.trim();
+    if(!p){
+      msg.textContent = "Enter password";
+      return;
+    }
+
+    localStorage.setItem(this.key, p);
+    this.success();
+  },
+
+  login(){
+    const p = pass.value;
+    const saved = localStorage.getItem(this.key);
+
+    if(p === saved){
+      this.success();
+    } else {
+      msg.textContent = "Wrong password";
+    }
+  },
+
+  success(){
+    localStorage.setItem(this.session, Date.now());
+    this.hideLock();
+  },
+
+  logout(){
+    localStorage.removeItem(this.session);
+    location.reload();
+  },
+
+  check(){
+    if(this.isLocked()){
+      this.open();
+    } else {
+      this.hideLock();
+    }
+  }
+};
+
+/* ================= CLOCK ================= */
+function tick(){
+  const d = new Date();
+  document.getElementById("clock").textContent = d.toLocaleTimeString();
+  document.getElementById("date").textContent = d.toDateString();
+}
+setInterval(tick, 1000);
+
+/* ================= NAV ================= */
+function go(p){ location.href = p; }
+
+/* ================= EXPORT ================= */
+function exportAll(){
+  const data = Store.get();
+
+  const blob = new Blob(
+    [JSON.stringify(data, null, 2)],
+    { type:"application/json" }
+  );
+
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "focus-os-backup.json";
+  a.click();
+
+  URL.revokeObjectURL(url);
+}
+
+/* ================= IMPORT ================= */
+function importAll(){
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "application/json";
+
+  input.onchange = e => {
+    const file = e.target.files[0];
+    if(!file) return;
+
+    const reader = new FileReader();
+
+    reader.onload = ev => {
+      try{
+        Store.set(JSON.parse(ev.target.result));
+        location.reload();
+      } catch {
+        alert("Invalid file");
+      }
+    };
+
+    reader.readAsText(file);
+  };
+
+  input.click();
+}
+
+/* ================= INIT (IMPORTANT FIX) ================= */
+window.addEventListener("DOMContentLoaded", () => {
+
+  overlay = document.getElementById("overlay");
+  pass = document.getElementById("pass");
+  msg = document.getElementById("msg");
+  btn = document.getElementById("actionBtn");
+  authBtn = document.getElementById("authBtn");
+  logoutBtn = document.getElementById("logoutBtn");
+
+  authBtn.onclick = () => Auth.open();
+  logoutBtn.onclick = () => Auth.logout();
+
+  tick();
+  Auth.check();
+});
+
+</script>
+
+</body>
+</html>

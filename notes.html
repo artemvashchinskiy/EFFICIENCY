@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mini Docs Pro</title>
+<link rel="icon" type="image/svg+xml" href='data:image/svg+xml,
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" rx="18" fill="%23d4d4d4"/>
+  <path d="M28 55 L45 72 L72 32" stroke="%232b2b2b" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>'>
+<script>
+const t = localStorage.getItem("login_time");
+
+if(!t || Date.now() - t > 10*60*60*1000){
+  location.href = "index.html";
+}
+</script>
+<style>
+:root {
+  --bg:#e9e9e9;
+  --panel:#f6f6f6;
+  --border:#d0d0d0;
+  --text:#2b2b2b;
+  --muted:#888;
+}
+
+body {
+  margin:0;
+  font-family:system-ui, sans-serif;
+  background:var(--bg);
+  color:var(--text);
+}
+.topbar{
+  display:flex;
+  align-items:center;
+  gap:10px;
+
+  padding:10px;
+  border-bottom:1px solid var(--border);
+  background:var(--panel);
+}
+
+.back{
+  width:32px;
+  height:32px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+
+  border:1px solid #888;
+  background:#eee;
+  cursor:pointer;
+  font-size:14px;
+}
+
+.title{
+  font-weight:600;
+  font-size:14px;
+}
+
+.spacer{
+  flex:1;
+}
+/* ===== HEADER ===== */
+.header {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:14px 18px;
+  background:var(--panel);
+  border-bottom:1px solid var(--border);
+}
+
+.header-title{
+  font-weight:600;
+  font-size:14px;
+  letter-spacing:0.3px;
+}
+/* ===== ICON BUTTON BASE ===== */
+.icon-btn {
+  width:34px;
+  height:34px;
+
+  display:flex;
+  align-items:center;
+  justify-content:center;
+
+  border:1px solid var(--border);
+  background:linear-gradient(#fff,#f0f0f0);
+  border-radius:10px;
+
+  cursor:pointer;
+  font-size:18px;
+  line-height:1;
+
+  transition:0.15s ease;
+  user-select:none;
+}
+
+/* hover lift */
+.icon-btn:hover {
+  transform:translateY(-1px);
+  background:#ffffff;
+  box-shadow:0 2px 6px rgba(0,0,0,0.08);
+}
+
+/* click feel */
+.icon-btn:active {
+  transform:translateY(0px) scale(0.96);
+}
+
+/* ===== PLUS (green accent feel) ===== */
+.plus {
+  font-weight:500;
+}
+
+/* optional subtle highlight */
+.plus:hover {
+  border-color:#b8b8b8;
+}
+
+/* ===== CLOSE BUTTON ===== */
+.close {
+  font-size:16px;
+  color:#444;
+}
+
+.close:hover {
+  background:#ffecec;
+  border-color:#ffb3b3;
+}
+
+/* grid */
+.docs {
+  display:flex;
+  flex-wrap:wrap;
+  gap:16px;
+  padding:16px;
+}
+
+/* card */
+.doc {
+  width:140px;
+  height:120px;
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:10px;
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+  cursor:pointer;
+  transition:.2s;
+}
+
+.doc:hover {
+  background:#ededed;
+}
+
+/* title */
+.doc-title {
+  font-weight:600;
+  font-size:13px;
+}
+
+/* preview */
+.doc-preview {
+  font-size:11px;
+  color:var(--muted);
+  overflow:hidden;
+}
+
+/* delete */
+.delete {
+  text-align:right;
+  font-size:12px;
+  cursor:pointer;
+  color:var(--muted);
+}
+
+/* editor */
+.editor {
+  position:fixed;
+  inset:0;
+  display:none;
+  flex-direction:column;
+  background:#fafafa;
+}
+
+/* ===== EDITOR BAR ===== */
+.editor-bar {
+  padding:10px 15px;
+  border-bottom:1px solid var(--border);
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  background:var(--panel);
+}
+
+.editor-title{
+  font-size:13px;
+  font-weight:500;
+  color:#444;
+}
+
+input {
+  border:none;
+  outline:none;
+  font-size:18px;
+  padding:12px 15px;
+  border-bottom:1px solid var(--border);
+  background:#fff;
+}
+
+textarea {
+  flex:1;
+  border:none;
+  outline:none;
+  padding:15px;
+  font-size:15px;
+  resize:none;
+  background:#fff;
+}
+</style>
+</head>
+
+<body>
+  <!-- ===== MINI TOPBAR ===== -->
+  <div class="topbar">
+    <button class="back" onclick="location.href='index.html'">←</button>
+
+    <div class="title">Mini Docs</div>
+
+    <div class="spacer"></div>
+  </div>
+<div class="header">
+  <div class="header-title">Mini Docs</div>
+
+  <div class="actions">
+    <button class="icon-btn plus" onclick="createDoc()">＋</button>
+  </div>
+</div>
+
+<div class="docs" id="docs"></div>
+
+<div class="editor" id="editor">
+  <div class="editor-bar">
+  <div class="editor-title">Editing...</div>
+    <button class="icon-btn close" onclick="closeEditor()">✕</button>
+  </div>
+  <input id="title" placeholder="Title...">
+  <textarea id="text" placeholder="Start writing..."></textarea>
+</div>
+
+<script>
+
+/* ===== STORE FIRST (IMPORTANT) ===== */
+const Store = {
+  key: "focusOS",
+
+  get(){
+    return JSON.parse(localStorage.getItem(this.key)) || {
+      todos: [],
+      docs: {},
+      grid: [],
+      sessions: [],
+      calendar: {}
+    };
+  },
+
+  set(data){
+    localStorage.setItem(this.key, JSON.stringify(data));
+  },
+
+  update(fn){
+    const data = this.get();
+    fn(data);
+    this.set(data);
+  }
+};
+
+/* ===== APP STATE ===== */
+let currentId = null;
+let autosaveTimer;
+
+/* ===== LOAD ===== */
+function loadDocs() {
+  const data = Store.get();
+  const docs = data.docs;
+
+  const container = document.getElementById('docs');
+  container.innerHTML = '';
+
+  const sorted = Object.entries(docs)
+    .sort((a,b)=> (b[1].updated||0) - (a[1].updated||0));
+
+  sorted.forEach(([id, doc]) => {
+    const el = document.createElement('div');
+    el.className = 'doc';
+
+    const title = document.createElement('div');
+    title.className = 'doc-title';
+    title.innerText = doc.title || 'Untitled';
+
+    const preview = document.createElement('div');
+    preview.className = 'doc-preview';
+    preview.innerText = (doc.text || '').slice(0,50);
+
+    const del = document.createElement('div');
+    del.className = 'delete';
+    del.innerText = '🗑';
+
+    del.onclick = (e) => {
+      e.stopPropagation();
+
+      if(confirm('Delete this document?')) {
+        Store.update(data => {
+          delete data.docs[id];
+        });
+
+        loadDocs();
+      }
+    };
+
+    el.onclick = () => openDoc(id);
+
+    el.append(title, preview, del);
+    container.appendChild(el);
+  });
+}
+
+/* ===== CREATE ===== */
+function createDoc() {
+  currentId = 'doc_' + Date.now();
+  document.getElementById('title').value = '';
+  document.getElementById('text').value = '';
+  openEditor();
+}
+
+/* ===== OPEN ===== */
+function openDoc(id) {
+  const data = Store.get();
+
+  currentId = id;
+
+  document.getElementById('title').value = data.docs[id].title || "";
+  document.getElementById('text').value = data.docs[id].text || "";
+
+  openEditor();
+}
+
+/* ===== EDITOR ===== */
+function openEditor() {
+  document.getElementById('editor').style.display = 'flex';
+
+  clearInterval(autosaveTimer);
+  autosaveTimer = setInterval(saveDoc, 2000);
+}
+
+/* ===== SAVE ===== */
+function saveDoc() {
+  if(!currentId) return;
+
+  const title = document.getElementById('title').value;
+  const text = document.getElementById('text').value;
+
+  Store.update(data => {
+    data.docs[currentId] = {
+      title,
+      text,
+      updated: Date.now()
+    };
+  });
+}
+
+/* ===== CLOSE ===== */
+function closeEditor() {
+  saveDoc();
+  clearInterval(autosaveTimer);
+  document.getElementById('editor').style.display = 'none';
+  loadDocs();
+}
+
+/* ===== INIT (AFTER EVERYTHING EXISTS) ===== */
+loadDocs();
+
+</script>
+
+</body>
+</html>

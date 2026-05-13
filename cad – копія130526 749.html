@@ -1,0 +1,1177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CAD</title>
+
+<style>
+:root{
+  --bg:#d4d4d4;
+  --panel:#e6e6e6;
+  --border:#999;
+  --tool:#f3f3f3;
+  --active:#bfd3ff;
+}
+
+*{
+  box-sizing:border-box;
+  margin:0;
+  padding:0;
+}
+
+body{
+  overflow:hidden;
+  font-family:Segoe UI;
+  background:#bdbdbd;
+}
+
+/* ===== TOPBAR ===== */
+
+.toolbar{
+  position:fixed;
+  top:0;
+  left:0;
+  right:0;
+  height:52px;
+
+  display:flex;
+  align-items:center;
+  gap:6px;
+
+  padding:6px;
+
+  background:var(--panel);
+  border-bottom:1px solid var(--border);
+
+  z-index:1000;
+  overflow:auto;
+}
+
+.toolbar button,
+.toolbar select,
+.toolbar input{
+  height:36px;
+  border:1px solid #888;
+  background:var(--tool);
+  padding:0 10px;
+  font-size:13px;
+}
+
+.toolbar button{
+  cursor:pointer;
+}
+
+.toolbar button.active{
+  background:var(--active);
+}
+
+.layers{
+  display:flex;
+  align-items:center;
+  gap:4px;
+}
+
+canvas{
+  position:absolute;
+  top:52px;
+  left:0;
+  background:white;
+}
+
+/* ===== SNAP INFO ===== */
+
+.snap-info{
+  position:fixed;
+  right:10px;
+  bottom:10px;
+
+  background:#fff;
+  border:1px solid #999;
+
+  padding:8px 10px;
+  font-size:12px;
+
+  z-index:1000;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="toolbar">
+
+  <button onclick="CAD.setTool('select')" id="tool-select">Select</button>
+
+  <button onclick="CAD.setTool('line')" id="tool-line">Line</button>
+
+  <button onclick="CAD.setTool('circle')" id="tool-circle">Circle</button>
+
+  <button onclick="CAD.setTool('text')" id="tool-text">Text</button>
+
+  <button onclick="CAD.setTool('dimension')" id="tool-dim">Dim</button>
+
+  <select id="gridSize">
+    <option value="1">1 mm</option>
+    <option value="10" selected>10 mm</option>
+    <option value="100">100 mm</option>
+  </select>
+
+  <select id="thickness">
+    <option value="0.15">0.15</option>
+    <option value="0.35" selected>0.35</option>
+    <option value="0.6">0.6</option>
+  </select>
+
+  <input type="color" id="color" value="#000000"/>
+
+  <div class="layers">
+
+    <select id="layerSelect"></select>
+
+    <button onclick="CAD.addLayer()">+</button>
+
+    <button onclick="CAD.toggleLayer()">👁</button>
+
+    <button onclick="CAD.deleteLayer()">🗑</button>
+
+  </div>
+
+  <button onclick="CAD.exportJSON()">⬇ JSON</button>
+
+  <button onclick="CAD.importJSON()">⬆ JSON</button>
+
+  <button onclick="CAD.exportPNG()">🖼 PNG</button>
+
+  <button onclick="CAD.deleteSelected()">Delete</button>
+
+</div>
+
+<canvas id="cad"></canvas>
+
+<div class="snap-info" id="snapInfo">
+SNAP: GRID
+</div>
+
+<script>
+
+/* =========================================================
+   AUTH
+========================================================= */
+
+const loginTime = localStorage.getItem("login_time");
+
+if(!loginTime || Date.now() - loginTime > 10*60*60*1000){
+  location.href = "index.html";
+}
+
+/* =========================================================
+   CAD
+========================================================= */
+
+const CAD = {
+
+  canvas:null,
+  ctx:null,
+
+  tool:"line",
+
+  grid:10,
+
+  color:"#000000",
+
+  thickness:0.35,
+
+  temp:[],
+
+  drag:false,
+
+  dragStart:null,
+
+  dragEnd:null,
+
+  selected:[],
+
+  moving:false,
+
+  resizing:null,
+
+  snapPoint:null,
+
+  currentLayer:"0",
+
+  layers:[
+    {name:"0",color:"#000000",visible:true},
+    {name:"Dimensions",color:"#0066ff",visible:true},
+    {name:"Text",color:"#008800",visible:true}
+  ],
+
+  objects:[],
+
+  init(){
+
+    this.canvas = document.getElementById("cad");
+    this.ctx = this.canvas.getContext("2d");
+
+    this.resize();
+
+    window.addEventListener("resize",()=>this.resize());
+
+    this.bind();
+
+    this.render();
+
+    this.renderLayers();
+  },
+
+  resize(){
+
+    this.canvas.width = window.innerWidth;
+    this.canvas.height = window.innerHeight - 52;
+  },
+
+  setTool(tool){
+
+    this.tool = tool;
+
+    this.temp = [];
+
+    document.querySelectorAll(".toolbar button")
+      .forEach(b=>b.classList.remove("active"));
+
+    const btn = document.getElementById(`tool-${tool}`);
+
+    if(btn){
+      btn.classList.add("active");
+    }
+  },
+
+  bind(){
+
+    document.getElementById("gridSize")
+      .onchange = e=>{
+        this.grid = Number(e.target.value);
+        this.render();
+      };
+
+    document.getElementById("color")
+      .onchange = e=>{
+        this.color = e.target.value;
+      };
+
+    document.getElementById("thickness")
+      .onchange = e=>{
+        this.thickness = Number(e.target.value);
+      };
+
+    document.getElementById("layerSelect")
+      .onchange = e=>{
+        this.currentLayer = e.target.value;
+
+        const layer = this.layers.find(
+          l=>l.name === this.currentLayer
+        );
+
+        if(layer){
+          this.color = layer.color;
+          document.getElementById("color").value = layer.color;
+        }
+      };
+
+    /* ===== MOUSE DOWN ===== */
+
+    this.canvas.addEventListener("mousedown",(e)=>{
+
+      const p = this.snap(this.mouse(e));
+
+      /* resize handle */
+      const handle = this.hitHandle(p);
+
+      if(handle){
+
+        this.resizing = handle;
+
+        return;
+      }
+
+      /* SELECT */
+      if(this.tool === "select"){
+
+        const hit = this.hit(p);
+
+        if(hit){
+
+          this.selected = [hit];
+
+          this.moving = true;
+
+          this.moveStart = p;
+        }
+
+        else{
+
+          this.selected = [];
+
+          this.drag = true;
+
+          this.dragStart = p;
+          this.dragEnd = p;
+        }
+
+        this.render();
+
+        return;
+      }
+
+      /* LINE */
+      if(this.tool === "line"){
+
+        this.temp.push(p);
+
+        if(this.temp.length === 2){
+
+          this.objects.push({
+            type:"line",
+            a:this.temp[0],
+            b:this.temp[1],
+            color:this.color,
+            width:this.thickness,
+            layer:this.currentLayer
+          });
+
+          this.temp = [];
+        }
+      }
+
+      /* CIRCLE */
+      if(this.tool === "circle"){
+
+        this.temp.push(p);
+
+        if(this.temp.length === 2){
+
+          this.objects.push({
+            type:"circle",
+            center:this.temp[0],
+            r:this.distance(this.temp[0],this.temp[1]),
+            color:this.color,
+            width:this.thickness,
+            layer:this.currentLayer
+          });
+
+          this.temp = [];
+        }
+      }
+
+      /* TEXT */
+      if(this.tool === "text"){
+
+        const text = prompt("Text");
+
+        if(text){
+
+          this.objects.push({
+            type:"text",
+            x:p.x,
+            y:p.y,
+            text,
+            size:3.5,
+            rot:0,
+            color:this.color,
+            layer:this.currentLayer
+          });
+        }
+      }
+
+      /* DIM */
+      if(this.tool === "dimension"){
+
+        this.temp.push(p);
+
+        if(this.temp.length === 2){
+
+          const a = this.temp[0];
+          const b = this.temp[1];
+
+          const horizontal =
+            Math.abs(a.x-b.x) >
+            Math.abs(a.y-b.y);
+
+          this.objects.push({
+            type:"dimension",
+            a,
+            b,
+            horizontal,
+            color:this.color,
+            layer:"Dimensions"
+          });
+
+          this.temp = [];
+        }
+      }
+
+      this.render();
+    });
+
+    /* ===== MOVE ===== */
+
+    this.canvas.addEventListener("mousemove",(e)=>{
+
+      const p = this.snap(this.mouse(e));
+
+      this.snapPoint = p;
+
+      /* selection box */
+      if(this.drag){
+
+        this.dragEnd = p;
+      }
+
+      /* move */
+      if(this.moving){
+
+        const dx = p.x - this.moveStart.x;
+        const dy = p.y - this.moveStart.y;
+
+        this.selected.forEach(o=>{
+
+          if(o.type === "line"){
+
+            o.a.x += dx;
+            o.a.y += dy;
+
+            o.b.x += dx;
+            o.b.y += dy;
+          }
+
+          if(o.type === "circle"){
+
+            o.center.x += dx;
+            o.center.y += dy;
+          }
+
+          if(o.type === "text"){
+
+            o.x += dx;
+            o.y += dy;
+          }
+
+          if(o.type === "dimension"){
+
+            o.a.x += dx;
+            o.a.y += dy;
+
+            o.b.x += dx;
+            o.b.y += dy;
+          }
+        });
+
+        this.moveStart = p;
+      }
+
+      /* resize */
+      if(this.resizing){
+
+        const r = this.resizing;
+
+        if(r.obj.type === "line"){
+
+          r.point.x = p.x;
+          r.point.y = p.y;
+        }
+
+        if(r.obj.type === "circle"){
+
+          r.obj.r =
+            this.distance(
+              r.obj.center,
+              p
+            );
+        }
+      }
+
+      this.render();
+    });
+
+    /* ===== UP ===== */
+
+    this.canvas.addEventListener("mouseup",()=>{
+
+      this.drag = false;
+
+      this.moving = false;
+
+      this.resizing = null;
+
+      this.render();
+    });
+  },
+
+  /* =========================================================
+     HELPERS
+  ========================================================= */
+
+  mouse(e){
+
+    const r = this.canvas.getBoundingClientRect();
+
+    return {
+      x:e.clientX-r.left,
+      y:e.clientY-r.top
+    };
+  },
+
+  snap(p){
+
+    const g = this.grid;
+
+    let best = {
+      x:Math.round(p.x/g)*g,
+      y:Math.round(p.y/g)*g,
+      type:"GRID"
+    };
+
+    let min = Infinity;
+
+    this.objects.forEach(o=>{
+
+      if(o.type === "line"){
+
+        [o.a,o.b,{
+          x:(o.a.x+o.b.x)/2,
+          y:(o.a.y+o.b.y)/2
+        }].forEach(pt=>{
+
+          const d = this.distance(p,pt);
+
+          if(d < 12 && d < min){
+
+            min = d;
+
+            best = {
+              x:pt.x,
+              y:pt.y,
+              type:"SNAP"
+            };
+          }
+        });
+      }
+
+      if(o.type === "circle"){
+
+        const pts = [
+          {x:o.center.x+o.r,y:o.center.y},
+          {x:o.center.x-o.r,y:o.center.y},
+          {x:o.center.x,y:o.center.y+o.r},
+          {x:o.center.x,y:o.center.y-o.r},
+          o.center
+        ];
+
+        pts.forEach(pt=>{
+
+          const d = this.distance(p,pt);
+
+          if(d < 12 && d < min){
+
+            min = d;
+
+            best = {
+              x:pt.x,
+              y:pt.y,
+              type:"SNAP"
+            };
+          }
+        });
+      }
+    });
+
+    document.getElementById("snapInfo")
+      .textContent = "SNAP: " + best.type;
+
+    return best;
+  },
+
+  distance(a,b){
+
+    return Math.hypot(a.x-b.x,a.y-b.y);
+  },
+
+  mmToPx(mm){
+
+    return mm * 3.5;
+  },
+
+  widthToPx(w){
+
+    if(w === 0.15) return 1;
+    if(w === 0.35) return 3;
+    if(w === 0.6) return 6;
+
+    return 2;
+  },
+
+  /* =========================================================
+     HIT
+  ========================================================= */
+
+  hit(p){
+
+    for(let i=this.objects.length-1;i>=0;i--){
+
+      const o = this.objects[i];
+
+      if(o.type === "line"){
+
+        const d =
+          this.pointSegmentDistance(
+            p,o.a,o.b
+          );
+
+        if(d < 8) return o;
+      }
+
+      if(o.type === "circle"){
+
+        const d =
+          Math.abs(
+            this.distance(p,o.center)-o.r
+          );
+
+        if(d < 8) return o;
+      }
+
+      if(o.type === "text"){
+
+        if(
+          p.x > o.x &&
+          p.x < o.x + 100 &&
+          p.y < o.y &&
+          p.y > o.y - 20
+        ){
+          return o;
+        }
+      }
+
+      if(o.type === "dimension"){
+
+        const d =
+          this.pointSegmentDistance(
+            p,o.a,o.b
+          );
+
+        if(d < 8) return o;
+      }
+    }
+
+    return null;
+  },
+
+  hitHandle(p){
+
+    for(const o of this.selected){
+
+      if(o.type === "line"){
+
+        for(const pt of [o.a,o.b]){
+
+          if(this.distance(p,pt) < 10){
+
+            return {
+              obj:o,
+              point:pt
+            };
+          }
+        }
+      }
+
+      if(o.type === "circle"){
+
+        const pt = {
+          x:o.center.x + o.r,
+          y:o.center.y
+        };
+
+        if(this.distance(p,pt) < 10){
+
+          return {
+            obj:o
+          };
+        }
+      }
+    }
+
+    return null;
+  },
+
+  pointSegmentDistance(p,a,b){
+
+    const A = p.x-a.x;
+    const B = p.y-a.y;
+
+    const C = b.x-a.x;
+    const D = b.y-a.y;
+
+    const dot = A*C+B*D;
+    const len = C*C+D*D;
+
+    let t = dot/len;
+
+    t = Math.max(0,Math.min(1,t));
+
+    const x = a.x+t*C;
+    const y = a.y+t*D;
+
+    return Math.hypot(p.x-x,p.y-y);
+  },
+
+  /* =========================================================
+     DELETE
+  ========================================================= */
+
+  deleteSelected(){
+
+    this.objects =
+      this.objects.filter(
+        o=>!this.selected.includes(o)
+      );
+
+    this.selected = [];
+
+    this.render();
+  },
+
+  deleteLayer(){
+
+    if(this.currentLayer === "0"){
+      alert("Cannot delete layer 0");
+      return;
+    }
+
+    this.objects =
+      this.objects.filter(
+        o=>o.layer !== this.currentLayer
+      );
+
+    this.layers =
+      this.layers.filter(
+        l=>l.name !== this.currentLayer
+      );
+
+    this.currentLayer = "0";
+
+    this.renderLayers();
+
+    this.render();
+  },
+
+  /* =========================================================
+     LAYERS
+  ========================================================= */
+
+  renderLayers(){
+
+    const s = document.getElementById("layerSelect");
+
+    s.innerHTML = "";
+
+    this.layers.forEach(l=>{
+
+      const o = document.createElement("option");
+
+      o.value = l.name;
+      o.textContent = l.name;
+
+      s.appendChild(o);
+    });
+
+    s.value = this.currentLayer;
+  },
+
+  addLayer(){
+
+    const name = prompt("Layer name");
+
+    if(!name) return;
+
+    this.layers.push({
+      name,
+      color:"#000000",
+      visible:true
+    });
+
+    this.renderLayers();
+  },
+
+  toggleLayer(){
+
+    const l =
+      this.layers.find(
+        x=>x.name===this.currentLayer
+      );
+
+    if(!l) return;
+
+    l.visible = !l.visible;
+
+    this.render();
+  },
+
+  /* =========================================================
+     EXPORT / IMPORT
+  ========================================================= */
+
+  exportJSON(){
+
+    const data = {
+      objects:this.objects,
+      layers:this.layers
+    };
+
+    const blob = new Blob(
+      [JSON.stringify(data,null,2)],
+      {type:"application/json"}
+    );
+
+    const a = document.createElement("a");
+
+    a.href = URL.createObjectURL(blob);
+
+    a.download = "cad-project.json";
+
+    a.click();
+  },
+
+  importJSON(){
+
+    const input = document.createElement("input");
+
+    input.type = "file";
+
+    input.accept = ".json";
+
+    input.onchange = e=>{
+
+      const file = e.target.files[0];
+
+      if(!file) return;
+
+      const reader = new FileReader();
+
+      reader.onload = ev=>{
+
+        const data =
+          JSON.parse(ev.target.result);
+
+        this.objects = data.objects || [];
+        this.layers = data.layers || [];
+
+        this.renderLayers();
+
+        this.render();
+      };
+
+      reader.readAsText(file);
+    };
+
+    input.click();
+  },
+
+  exportPNG(){
+
+    this.render();
+
+    const a = document.createElement("a");
+
+    a.href = this.canvas.toDataURL("image/png");
+
+    a.download = "drawing.png";
+
+    a.click();
+  },
+
+  /* =========================================================
+     RENDER
+  ========================================================= */
+
+  render(){
+
+    const ctx = this.ctx;
+
+    ctx.clearRect(
+      0,0,
+      this.canvas.width,
+      this.canvas.height
+    );
+
+    this.drawGrid();
+
+    this.objects.forEach(o=>{
+
+      const layer =
+        this.layers.find(
+          l=>l.name===o.layer
+        );
+
+      if(layer && !layer.visible) return;
+
+      ctx.strokeStyle = o.color;
+      ctx.fillStyle = o.color;
+
+      if(o.width){
+        ctx.lineWidth =
+          this.widthToPx(o.width);
+      }
+
+      /* ===== LINE ===== */
+
+      if(o.type === "line"){
+
+        ctx.beginPath();
+
+        ctx.moveTo(o.a.x,o.a.y);
+
+        ctx.lineTo(o.b.x,o.b.y);
+
+        ctx.stroke();
+      }
+
+      /* ===== CIRCLE ===== */
+
+      if(o.type === "circle"){
+
+        ctx.beginPath();
+
+        ctx.arc(
+          o.center.x,
+          o.center.y,
+          o.r,
+          0,
+          Math.PI*2
+        );
+
+        ctx.stroke();
+      }
+
+      /* ===== TEXT ===== */
+
+      if(o.type === "text"){
+
+        ctx.save();
+
+        ctx.translate(o.x,o.y);
+
+        ctx.rotate(o.rot*Math.PI/180);
+
+        ctx.font =
+          `${this.mmToPx(o.size)}px Arial`;
+
+        ctx.fillText(o.text,0,0);
+
+        ctx.restore();
+      }
+
+      /* ===== DIM ===== */
+
+      if(o.type === "dimension"){
+
+        const offset = 25;
+
+        if(o.horizontal){
+
+          const y =
+            Math.min(o.a.y,o.b.y)-offset;
+
+          this.drawLine(o.a.x,o.a.y,o.a.x,y);
+          this.drawLine(o.b.x,o.b.y,o.b.x,y);
+
+          this.drawLine(o.a.x,y,o.b.x,y);
+
+          this.arrow(o.a.x,y,180);
+          this.arrow(o.b.x,y,0);
+
+          ctx.fillText(
+            Math.abs(o.a.x-o.b.x).toFixed(0),
+            (o.a.x+o.b.x)/2,
+            y-5
+          );
+        }
+
+        else{
+
+          const x =
+            Math.max(o.a.x,o.b.x)+offset;
+
+          this.drawLine(o.a.x,o.a.y,x,o.a.y);
+          this.drawLine(o.b.x,o.b.y,x,o.b.y);
+
+          this.drawLine(x,o.a.y,x,o.b.y);
+
+          this.arrow(x,o.a.y,-90);
+          this.arrow(x,o.b.y,90);
+
+          ctx.save();
+
+          ctx.translate(
+            x+10,
+            (o.a.y+o.b.y)/2
+          );
+
+          ctx.rotate(-Math.PI/2);
+
+          ctx.fillText(
+            Math.abs(o.a.y-o.b.y).toFixed(0),
+            0,
+            0
+          );
+
+          ctx.restore();
+        }
+      }
+    });
+
+    /* ===== SELECTION ===== */
+
+    this.selected.forEach(o=>{
+
+      ctx.strokeStyle = "#4a90ff";
+
+      ctx.lineWidth = 2;
+
+      if(o.type === "line"){
+
+        this.drawLine(
+          o.a.x,o.a.y,
+          o.b.x,o.b.y
+        );
+
+        [o.a,o.b].forEach(pt=>{
+
+          ctx.fillStyle="#4a90ff";
+
+          ctx.fillRect(
+            pt.x-4,
+            pt.y-4,
+            8,
+            8
+          );
+        });
+      }
+
+      if(o.type === "circle"){
+
+        ctx.beginPath();
+
+        ctx.arc(
+          o.center.x,
+          o.center.y,
+          o.r,
+          0,
+          Math.PI*2
+        );
+
+        ctx.stroke();
+
+        ctx.fillRect(
+          o.center.x+o.r-4,
+          o.center.y-4,
+          8,
+          8
+        );
+      }
+    });
+
+    /* ===== BOX ===== */
+
+    if(this.drag){
+
+      ctx.strokeStyle = "#4a90ff";
+
+      ctx.setLineDash([5,5]);
+
+      ctx.strokeRect(
+        this.dragStart.x,
+        this.dragStart.y,
+        this.dragEnd.x-this.dragStart.x,
+        this.dragEnd.y-this.dragStart.y
+      );
+
+      ctx.setLineDash([]);
+    }
+  },
+
+  drawGrid(){
+
+    const ctx = this.ctx;
+
+    ctx.strokeStyle = "#eee";
+
+    ctx.lineWidth = 1;
+
+    for(let x=0;x<this.canvas.width;x+=this.grid){
+
+      ctx.beginPath();
+
+      ctx.moveTo(x,0);
+
+      ctx.lineTo(x,this.canvas.height);
+
+      ctx.stroke();
+    }
+
+    for(let y=0;y<this.canvas.height;y+=this.grid){
+
+      ctx.beginPath();
+
+      ctx.moveTo(0,y);
+
+      ctx.lineTo(this.canvas.width,y);
+
+      ctx.stroke();
+    }
+  },
+
+  drawLine(x1,y1,x2,y2){
+
+    this.ctx.beginPath();
+
+    this.ctx.moveTo(x1,y1);
+
+    this.ctx.lineTo(x2,y2);
+
+    this.ctx.stroke();
+  },
+
+  arrow(x,y,a){
+
+    const ctx = this.ctx;
+
+    ctx.save();
+
+    ctx.translate(x,y);
+
+    ctx.rotate(a*Math.PI/180);
+
+    ctx.beginPath();
+
+    ctx.moveTo(0,0);
+
+    ctx.lineTo(-8,-4);
+
+    ctx.moveTo(0,0);
+
+    ctx.lineTo(-8,4);
+
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+};
+
+window.onload = ()=>CAD.init();
+
+</script>
+
+</body>
+</html>

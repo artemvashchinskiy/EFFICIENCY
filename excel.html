@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Excel Sheet</title>
+
+<style>
+:root{
+  --bg:#d4d4d4;
+  --panel:#e6e6e6;
+  --border:#999;
+  --cell:#f7f7f7;
+}
+
+*{
+  box-sizing:border-box;
+}
+
+body{
+  margin:0;
+  font-family:Segoe UI;
+  background:var(--bg);
+  min-height:100vh;
+  display:flex;
+  justify-content:center;
+  padding:12px;
+}
+
+/* ===== APP ===== */
+.app{
+  width:100%;
+  max-width:1200px;
+  background:var(--panel);
+  border:1px solid var(--border);
+  overflow:hidden;
+}
+
+/* ===== TOPBAR ===== */
+.topbar{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px;
+  border-bottom:1px solid var(--border);
+  background:#ececec;
+  flex-wrap:nowrap;   /* IMPORTANT: no wrapping */
+  overflow-x:auto;    /* allows scroll instead of breaking layout */
+}
+
+.back{
+  width:34px;
+  height:34px;
+  flex:0 0 34px;      /* FIX: prevents stretching */
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border:1px solid #888;
+  background:#eee;
+  cursor:pointer;
+}
+
+.title{
+  font-weight:600;
+  white-space:nowrap;
+}
+
+.spacer{
+  flex:1;
+  min-width:10px;
+}
+
+/* buttons stay compact */
+.topbar button{
+  flex:0 0 auto;
+  white-space:nowrap;
+}
+
+button{
+  padding:7px 12px;
+  border:1px solid #888;
+  background:#eee;
+  cursor:pointer;
+}
+
+button:hover{
+  background:#fff;
+}
+
+/* ===== SHEET WRAP ===== */
+.sheet-wrap{
+  overflow:auto;
+  width:100%;
+}
+
+/* ===== GRID ===== */
+.sheet{
+  display:grid;
+  grid-template-columns:50px repeat(12,minmax(90px,1fr));
+  min-width:1100px;
+}
+
+/* ===== HEADERS ===== */
+.header{
+  background:#ddd;
+  border-right:1px solid #999;
+  border-bottom:1px solid #999;
+  padding:8px;
+  text-align:center;
+  font-size:13px;
+  font-weight:600;
+  position:sticky;
+  top:0;
+  z-index:2;
+}
+
+.corner{
+  background:#d0d0d0;
+  position:sticky;
+  left:0;
+  z-index:3;
+}
+
+/* ===== ROW NUMBERS ===== */
+.row-label{
+  background:#ddd;
+  border-right:1px solid #999;
+  border-bottom:1px solid #999;
+  padding:6px;
+  text-align:center;
+  font-size:12px;
+  position:sticky;
+  left:0;
+  z-index:1;
+}
+
+/* ===== CELLS ===== */
+.cell{
+  width:100%;
+  min-height:30px;
+  height:30px;
+  padding:4px 6px;
+  font-size:13px;
+  border:none;
+  border-right:1px solid #bbb;
+  border-bottom:1px solid #bbb;
+  padding:6px;
+  background:var(--cell);
+  font-size:14px;
+  outline:none;
+}
+
+.cell:focus{
+  background:#fff;
+  box-shadow:inset 0 0 0 2px #7c95ff;
+}
+
+.selected{
+  background:#bcd3ff !important;
+}
+
+/* ===== MOBILE ===== */
+@media(max-width:700px){
+
+  body{
+    padding:0;
+  }
+
+  .app{
+    border:none;
+  }
+
+  .topbar{
+    padding:8px;
+  }
+
+  .title{
+    width:100%;
+  }
+
+  button{
+    flex:1;
+  }
+
+}
+</style>
+</head>
+
+<body>
+
+<div class="app">
+
+  <!-- TOP -->
+  <div class="topbar">
+
+    <button class="back" onclick="location.href='index.html'">
+      ←
+    </button>
+
+    <div class="title">
+      Excel Sheet
+    </div>
+
+    <div class="spacer"></div>
+
+    <button onclick="Sheet.clear()">
+      Clear
+    </button>
+
+    <button onclick="Sheet.export()">
+      Export
+    </button>
+
+    <button onclick="Sheet.import()">
+      Import
+    </button>
+
+  </div>
+
+  <!-- SHEET -->
+  <div class="sheet-wrap">
+
+    <div class="sheet" id="sheet"></div>
+
+  </div>
+
+</div>
+
+<script>
+let activeFormulaCell = null;
+let selecting = false;
+let startCell = null;
+document.addEventListener("mouseup",()=>{
+
+  selecting = false;
+});
+function clearSelection(){
+
+  document.querySelectorAll(".cell")
+    .forEach(c=>c.classList.remove("selected"));
+}
+/* ===== AUTH ===== */
+const t = localStorage.getItem("login_time");
+
+if(!t || Date.now() - t > 10*60*60*1000){
+  location.href = "index.html";
+}
+
+/* ===== STORE ===== */
+const Store = {
+
+  key:"focusOS",
+
+  get(){
+    return JSON.parse(localStorage.getItem(this.key) || "{}");
+  },
+
+  set(data){
+    localStorage.setItem(this.key, JSON.stringify(data));
+  }
+};
+
+/* ===== SHEET ===== */
+const Sheet = {
+
+  rows:20,
+  cols:12,
+
+  letters:"ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+
+  init(){
+
+    const el = document.getElementById("sheet");
+
+    /* CORNER */
+    const corner = document.createElement("div");
+    corner.className = "header corner";
+    el.appendChild(corner);
+
+    /* HEADERS */
+    for(let c=0;c<this.cols;c++){
+
+      const h = document.createElement("div");
+
+      h.className = "header";
+      h.textContent = this.letters[c];
+
+      el.appendChild(h);
+    }
+
+    /* ROWS */
+    for(let r=1;r<=this.rows;r++){
+
+      /* ROW NUMBER */
+      const label = document.createElement("div");
+
+      label.className = "row-label";
+      label.textContent = r;
+
+      el.appendChild(label);
+
+      /* CELLS */
+      for(let c=0;c<this.cols;c++){
+
+        const id = this.letters[c] + r;
+
+        const input = document.createElement("input");
+
+        input.className = "cell";
+
+        input.dataset.id = id;
+
+        const saved = Store.get().excel || {};
+
+        const raw = saved[id] || "";
+
+        /* show calculated value */
+        if(String(raw).startsWith("=")){
+          input.value = this.calculate(raw);
+        }else{
+          input.value = raw;
+        }
+
+        /* SAVE */
+        input.addEventListener("blur",()=>{
+
+          this.saveCell(id,input.value);
+
+          this.renderAll();
+        });
+
+        /* SHOW ORIGINAL FORMULA */
+        input.addEventListener("focus",()=>{
+
+          const data = Store.get().excel || {};
+
+          input.value = data[id] || "";
+
+          activeFormulaCell = input;
+        });
+
+        input.addEventListener("keydown",(e)=>{
+
+          if(e.key === "Enter"){
+
+            e.preventDefault();
+
+            input.blur();
+
+            const nextRow = r + 1;
+
+            if(nextRow <= this.rows){
+
+              const nextId = this.letters[c] + nextRow;
+
+              const nextCell = document.querySelector(
+                `[data-id="${nextId}"]`
+              );
+
+              if(nextCell){
+                nextCell.focus();
+              }
+            }
+          }
+        });
+
+        input.addEventListener("click",(e)=>{
+
+          if(
+            activeFormulaCell &&
+            activeFormulaCell !== input &&
+            activeFormulaCell.value.startsWith("=")
+          ){
+
+            e.preventDefault();
+
+            const current = activeFormulaCell.value;
+
+            const last = current.slice(-1);
+
+            if(/[+\-*/(]/.test(last)){
+              activeFormulaCell.value += id;
+            }else{
+              activeFormulaCell.value += "+" + id;
+            }
+
+            activeFormulaCell.focus();
+          }
+        });
+
+        input.addEventListener("mousedown",()=>{
+
+          selecting = true;
+
+          startCell = input;
+
+          clearSelection();
+
+          input.classList.add("selected");
+        });
+
+        input.addEventListener("mouseenter",()=>{
+
+          if(!selecting || !startCell) return;
+
+          clearSelection();
+
+          const startId = startCell.dataset.id;
+          const endId = input.dataset.id;
+
+          const startCol = startId.match(/[A-Z]+/)[0];
+          const startRow = parseInt(startId.match(/[0-9]+/)[0]);
+
+          const endCol = endId.match(/[A-Z]+/)[0];
+          const endRow = parseInt(endId.match(/[0-9]+/)[0]);
+
+          const startColIndex = this.letters.indexOf(startCol);
+          const endColIndex = this.letters.indexOf(endCol);
+
+          const minCol = Math.min(startColIndex,endColIndex);
+          const maxCol = Math.max(startColIndex,endColIndex);
+
+          const minRow = Math.min(startRow,endRow);
+          const maxRow = Math.max(startRow,endRow);
+
+          document.querySelectorAll(".cell").forEach(cell=>{
+
+            const id = cell.dataset.id;
+
+            const col = id.match(/[A-Z]+/)[0];
+            const row = parseInt(id.match(/[0-9]+/)[0]);
+
+            const colIndex = this.letters.indexOf(col);
+
+            if(
+              colIndex >= minCol &&
+              colIndex <= maxCol &&
+              row >= minRow &&
+              row <= maxRow
+            ){
+              cell.classList.add("selected");
+            }
+
+          });
+        });
+
+        el.appendChild(input);
+      }
+    }
+  },
+
+  /* ===== RENDER ALL ===== */
+  renderAll(){
+
+    const data = Store.get().excel || {};
+
+    document.querySelectorAll(".cell").forEach(cell=>{
+
+      const id = cell.dataset.id;
+
+      const raw = data[id] || "";
+
+      if(String(raw).startsWith("=")){
+        cell.value = this.calculate(raw);
+      }else{
+        cell.value = raw;
+      }
+
+    });
+  },
+
+  /* ===== SAVE ===== */
+  saveCell(id,val){
+
+    const data = Store.get();
+
+    data.excel = data.excel || {};
+
+    data.excel[id] = val;
+
+    Store.set(data);
+  },
+
+  /* ===== CALCULATIONS ===== */
+  calculate(expr){
+
+    try{
+
+      expr = expr.slice(1);
+
+      const data = Store.get().excel || {};
+
+      /* replace A1 B2 etc */
+      expr = expr.replace(/[A-Z][0-9]+/g, ref => {
+
+        let val = data[ref] || 0;
+
+        /* formula inside formula */
+        if(String(val).startsWith("=")){
+          val = this.calculate(val);
+        }
+
+        return Number(val) || 0;
+      });
+
+      if(!/^[0-9+\-*/(). ]+$/.test(expr)){
+        return "ERR";
+      }
+
+      return Function(`return (${expr})`)();
+
+    }catch{
+      return "ERR";
+    }
+  },
+
+  /* ===== CLEAR ===== */
+  clear(){
+
+    if(!confirm("Clear sheet?")) return;
+
+    const data = Store.get();
+
+    data.excel = {};
+
+    Store.set(data);
+
+    document.querySelectorAll(".cell")
+      .forEach(c => c.value = "");
+  },
+
+  /* ===== EXPORT ===== */
+  export(){
+
+    const data = Store.get().excel || {};
+
+    const now = new Date();
+
+    const pad = n => String(n).padStart(2,"0");
+
+    const filename =
+      `excel-sheet-${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}.json`;
+
+    const blob = new Blob(
+      [JSON.stringify(data,null,2)],
+      {type:"application/json"}
+    );
+
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+
+    a.href = url;
+
+    a.download = filename;
+
+    a.click();
+
+    URL.revokeObjectURL(url);
+  },
+
+  /* ===== IMPORT ===== */
+  import(){
+
+    const input = document.createElement("input");
+
+    input.type = "file";
+
+    input.accept = "application/json";
+
+    input.onchange = e => {
+
+      const file = e.target.files[0];
+
+      if(!file) return;
+
+      const reader = new FileReader();
+
+      reader.onload = ev => {
+
+        try{
+
+          const excel = JSON.parse(ev.target.result);
+
+          const data = Store.get();
+
+          data.excel = excel;
+
+          Store.set(data);
+
+          location.reload();
+
+        }catch{
+          alert("Invalid file");
+        }
+      };
+
+      reader.readAsText(file);
+    };
+
+    input.click();
+  }
+};
+
+/* ===== INIT ===== */
+Sheet.init();
+
+</script>
+
+</body>
+</html>

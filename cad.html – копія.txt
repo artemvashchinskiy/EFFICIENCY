@@ -1,0 +1,1395 @@
+<script>
+const CAD = {
+
+  const SNAP = {
+
+    endpoint: true,
+    midpoint: true,
+    intersection: true,
+    nearest: true,
+
+    threshold: 12 // pixels sensitivity
+  };
+
+  canvas: null,
+  ctx: null,
+
+  objects: [],
+
+  gridStep: 10, // mm
+  scale: 1/100, // A4 1:100
+
+  mode: "LINE",
+
+  tempPoints: [],
+
+  init(){
+
+    this.canvas = document.getElementById("cad");
+    this.ctx = this.canvas.getContext("2d");
+
+    this.resize();
+    this.draw();
+
+    this.bind();
+  },
+
+  resize(){
+    this.canvas.width = window.innerWidth;
+    this.canvas.height = window.innerHeight;
+  },
+
+  bind(){
+
+    this.canvas.addEventListener("click",(e)=>{
+
+      const p = this.getMouse(e);
+
+      const snap = this.snap(p);
+
+      this.tempPoints.push(snap);
+
+      if(this.mode === "LINE" && this.tempPoints.length === 2){
+        this.objects.push({
+          type:"line",
+          points:[...this.tempPoints],
+          color:"#111",
+          thickness:2
+        });
+
+        this.tempPoints = [];
+        this.draw();
+      }
+
+      if(this.mode === "CIRCLE" && this.tempPoints.length === 2){
+
+        this.objects.push({
+          type:"circle",
+          center:this.tempPoints[0],
+          radius:this.dist(this.tempPoints[0],this.tempPoints[1]),
+          color:"#111",
+          thickness:2
+        });
+
+        this.tempPoints = [];
+        this.draw();
+      }
+
+    });
+
+  },
+
+  getMouse(e){
+    const rect = this.canvas.getBoundingClientRect();
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    };
+  },
+
+  snap(p){
+
+    let candidates = [];
+
+    // 1. GRID SNAP (always base)
+    const g = this.gridStep;
+
+    candidates.push({
+      x: Math.round(p.x / g) * g,
+      y: Math.round(p.y / g) * g,
+      type: "grid"
+    });
+
+    // 2. OBJECT SNAP POINTS
+    for(const o of this.objects){
+
+      // LINE snaps
+      if(o.type === "line"){
+
+        const a = o.points[0];
+        const b = o.points[1];
+
+        if(SNAP.endpoint){
+          candidates.push({x:a.x,y:a.y,type:"endpoint"});
+          candidates.push({x:b.x,y:b.y,type:"endpoint"});
+        }
+
+        if(SNAP.midpoint){
+          candidates.push({
+            x:(a.x+b.x)/2,
+            y:(a.y+b.y)/2,
+            type:"midpoint"
+          });
+        }
+      }
+
+      // CIRCLE snaps
+      if(o.type === "circle"){
+
+        const c = o.center;
+        const r = o.radius;
+
+        if(SNAP.endpoint){
+
+          candidates.push(
+            {x:c.x+r,y:c.y,type:"circle"},
+            {x:c.x-r,y:c.y,type:"circle"},
+            {x:c.x,y:c.y+r,type:"circle"},
+            {x:c.x,y:c.y-r,type:"circle"}
+          );
+        }
+
+        candidates.push({
+          x:c.x,
+          y:c.y,
+          type:"center"
+        });
+      }
+    }
+
+    // 3. INTERSECTION SNAP (LINES only)
+    if(SNAP.intersection){
+      candidates.push(...this.getIntersections());
+    }
+
+    // 4. FIND BEST SNAP
+    let best = null;
+    let min = Infinity;
+
+    for(const c of candidates){
+
+      const d = this.dist(p,c);
+
+      if(d < SNAP.threshold && d < min){
+        min = d;
+        best = c;
+      }
+    }
+
+    // 5. fallback
+    if(!best || !SNAP.nearest){
+
+      return p;
+    }
+
+    return best;
+  }
+  getIntersections(){
+
+    const pts = [];
+
+    const lines = this.objects.filter(o=>o.type==="line");
+
+    for(let i=0;i<lines.length;i++){
+      for(let j=i+1;j<lines.length;j++){
+
+        const A = lines[i].points;
+        const B = lines[j].points;
+
+        const p = this.lineIntersect(
+          A[0],A[1],
+          B[0],B[1]
+        );
+
+        if(p){
+          pts.push({x:p.x,y:p.y,type:"intersection"});
+        }
+      }
+    }
+
+    return pts;
+  }
+  lineIntersect(p1,p2,p3,p4){
+
+    const d =
+      (p1.x-p2.x)*(p3.y-p4.y) -
+      (p1.y-p2.y)*(p3.x-p4.x);
+
+    if(d === 0) return null;
+
+    const xi =
+      ((p3.x-p4.x)*(p1.x*p2.y-p1.y*p2.x) -
+      (p1.x-p2.x)*(p3.x*p4.y-p3.y*p4.x)) / d;
+
+    const yi =
+      ((p3.y-p4.y)*(p1.x*p2.y-p1.y*p2.x) -
+      (p1.y-p2.y)*(p3.x*p4.y-p3.y*p4.x)) / d;
+
+    return {x:xi,y:yi};
+  }
+
+  dist(a,b){
+    return Math.hypot(a.x-b.x, a.y-b.y);
+  },
+
+  drawGrid(){
+
+    const ctx = this.ctx;
+    const step = this.gridStep;
+
+    ctx.strokeStyle = "#eee";
+    ctx.lineWidth = 1;
+
+    for(let x=0;x<this.canvas.width;x+=step){
+      ctx.beginPath();
+      ctx.moveTo(x,0);
+      ctx.lineTo(x,this.canvas.height);
+      ctx.stroke();
+    }
+
+    for(let y=0;y<this.canvas.height;y+=step){
+      ctx.beginPath();
+      ctx.moveTo(0,y);
+      ctx.lineTo(this.canvas.width,y);
+      ctx.stroke();
+    }
+  },
+
+  draw(){
+
+    const ctx = this.ctx;
+
+    ctx.clearRect(0,0,this.canvas.width,this.canvas.height);
+
+    this.drawGrid();
+
+    for(const o of this.objects){
+
+      if(o.type === "line"){
+
+        ctx.strokeStyle = o.color;
+        ctx.lineWidth = o.thickness;
+
+        ctx.beginPath();
+        ctx.moveTo(o.points[0].x,o.points[0].y);
+        ctx.lineTo(o.points[1].x,o.points[1].y);
+        ctx.stroke();
+      }
+
+      if(o.type === "circle"){
+
+        ctx.strokeStyle = o.color;
+        ctx.lineWidth = o.thickness;
+
+        ctx.beginPath();
+        ctx.arc(o.center.x,o.center.y,o.radius,0,Math.PI*2);
+        ctx.stroke();
+      }
+
+    }
+  },
+
+  setMode(m){
+    this.mode = m;
+    this.tempPoints = [];
+  }
+
+};
+
+window.addEventListener("load",()=>CAD.init());
+</script>
+
+/* =========================
+   TEXT TOOL
+========================= */
+
+const TextTool = {
+
+  active:false,
+  size:3.5, // mm standard A4 text
+  rotation:0,
+
+  create(x,y){
+
+    const value = prompt("Text:");
+
+    if(!value) return;
+
+    cad.texts.push({
+      x,
+      y,
+      text:value,
+      size:this.size,
+      rotation:this.rotation,
+      color:cad.color,
+      layer:cad.layer
+    });
+
+    render();
+  }
+};
+
+/* =========================
+   TOOLBAR EVENTS
+========================= */
+
+document.getElementById("toolText").onclick = ()=>{
+  currentTool = "text";
+};
+
+/* optional rotation */
+document.getElementById("textRotate").onchange = e=>{
+  TextTool.rotation = Number(e.target.value) || 0;
+};
+
+/* optional text size */
+document.getElementById("textSize").onchange = e=>{
+  TextTool.size = Number(e.target.value) || 3.5;
+};
+
+/* =========================
+   CANVAS CLICK
+========================= */
+
+canvas.addEventListener("mousedown", e=>{
+
+  const p = getMouse(e);
+
+  const snap = getSnap(p.x,p.y);
+
+  if(currentTool === "text"){
+
+    TextTool.create(snap.x, snap.y);
+  }
+});
+
+/* =========================
+   RENDER TEXTS
+========================= */
+
+function renderTexts(){
+
+  cad.texts.forEach(t=>{
+
+    ctx.save();
+
+    ctx.translate(t.x, t.y);
+
+    ctx.rotate(t.rotation * Math.PI / 180);
+
+    ctx.fillStyle = t.color || "#000";
+
+    /* CAD-like mm scaling */
+    const px =
+      (t.size || 3.5) * zoom * 3.78;
+
+    ctx.font = `${px}px Arial`;
+
+    ctx.textBaseline = "bottom";
+
+    ctx.fillText(t.text,0,0);
+
+    ctx.restore();
+  });
+}
+
+/* =========================
+   MAIN RENDER
+========================= */
+
+function render(){
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  drawGrid();
+
+  renderLines();
+
+  renderCircles();
+
+  renderDimensions();
+
+  renderTexts();
+
+  renderSnapPreview();
+}
+
+<button id="toolText">Text</button>
+
+<label>
+  Text mm
+  <input
+    id="textSize"
+    type="number"
+    value="3.5"
+    step="0.1"
+  >
+</label>
+
+<label>
+  Rotate
+  <input
+    id="textRotate"
+    type="number"
+    value="0"
+    step="5"
+  >
+</label>
+
+/* =========================
+   DIMENSION TOOL
+========================= */
+
+const DimTool = {
+
+  first:null,
+
+  click(x,y){
+
+    const s = getSnap(x,y);
+
+    if(!this.first){
+
+      this.first = s;
+
+      return;
+    }
+
+    const second = s;
+
+    const dx = Math.abs(second.x - this.first.x);
+    const dy = Math.abs(second.y - this.first.y);
+
+    /* AUTO MODE:
+       choose horizontal or vertical
+       by dominant direction
+    */
+
+    const type =
+      dx >= dy ? "horizontal" : "vertical";
+
+    cad.dimensions.push({
+      x1:this.first.x,
+      y1:this.first.y,
+      x2:second.x,
+      y2:second.y,
+      type,
+      color:cad.color
+    });
+
+    this.first = null;
+
+    render();
+  }
+};
+
+/* =========================
+   TOOLBAR
+========================= */
+
+document.getElementById("toolDim").onclick = ()=>{
+  currentTool = "dimension";
+};
+
+/* =========================
+   CLICK
+========================= */
+
+canvas.addEventListener("mousedown", e=>{
+
+  const p = getMouse(e);
+
+  if(currentTool === "dimension"){
+
+    DimTool.click(p.x,p.y);
+  }
+});
+
+/* =========================
+   DRAW DIMENSIONS
+========================= */
+
+function renderDimensions(){
+
+  cad.dimensions.forEach(d=>{
+
+    ctx.strokeStyle = d.color || "#000";
+    ctx.fillStyle = d.color || "#000";
+
+    ctx.lineWidth = 1;
+
+    const offset = 30;
+
+    if(d.type === "horizontal"){
+
+      const y = Math.min(d.y1,d.y2) - offset;
+
+      /* extension lines */
+      line(d.x1,d.y1,d.x1,y);
+      line(d.x2,d.y2,d.x2,y);
+
+      /* dimension line */
+      line(d.x1,y,d.x2,y);
+
+      /* arrowheads */
+      arrow(d.x1,y,180);
+      arrow(d.x2,y,0);
+
+      /* text */
+      const dist =
+        Math.abs(d.x2 - d.x1);
+
+      ctx.font = "12px Arial";
+      ctx.textAlign = "center";
+
+      ctx.fillText(
+        scaleToMm(dist).toFixed(0),
+        (d.x1+d.x2)/2,
+        y - 6
+      );
+    }
+
+    else{
+
+      const x = Math.max(d.x1,d.x2) + offset;
+
+      /* extension lines */
+      line(d.x1,d.y1,x,d.y1);
+      line(d.x2,d.y2,x,d.y2);
+
+      /* dimension line */
+      line(x,d.y1,x,d.y2);
+
+      /* arrowheads */
+      arrow(x,d.y1,-90);
+      arrow(x,d.y2,90);
+
+      /* text */
+      const dist =
+        Math.abs(d.y2 - d.y1);
+
+      ctx.save();
+
+      ctx.translate(x + 14,(d.y1+d.y2)/2);
+
+      ctx.rotate(-Math.PI/2);
+
+      ctx.font = "12px Arial";
+      ctx.textAlign = "center";
+
+      ctx.fillText(
+        scaleToMm(dist).toFixed(0),
+        0,
+        0
+      );
+
+      ctx.restore();
+    }
+  });
+}
+
+/* =========================
+   HELPERS
+========================= */
+
+function line(x1,y1,x2,y2){
+
+  ctx.beginPath();
+
+  ctx.moveTo(x1,y1);
+
+  ctx.lineTo(x2,y2);
+
+  ctx.stroke();
+}
+
+function arrow(x,y,angle){
+
+  const size = 8;
+
+  ctx.save();
+
+  ctx.translate(x,y);
+
+  ctx.rotate(angle * Math.PI/180);
+
+  ctx.beginPath();
+
+  ctx.moveTo(0,0);
+  ctx.lineTo(-size,-size/2);
+
+  ctx.moveTo(0,0);
+  ctx.lineTo(-size,size/2);
+
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/* canvas px -> mm */
+function scaleToMm(px){
+
+  return px / zoom;
+}
+
+<button id="toolDim">Dimension</button>
+
+/* =========================
+   SELECTION SYSTEM
+========================= */
+
+let selectedObjects = [];
+
+let dragSelect = false;
+
+let dragStart = null;
+let dragEnd = null;
+
+let moving = false;
+
+let moveOffset = {x:0,y:0};
+
+/* =========================
+   TOOL
+========================= */
+
+document.getElementById("toolSelect").onclick = ()=>{
+  currentTool = "select";
+};
+
+/* =========================
+   MOUSE DOWN
+========================= */
+
+canvas.addEventListener("mousedown", e=>{
+
+  const p = getMouse(e);
+
+  if(currentTool !== "select") return;
+
+  const hit = hitObject(p.x,p.y);
+
+  /* CLICK OBJECT */
+  if(hit){
+
+    if(!selectedObjects.includes(hit)){
+      selectedObjects = [hit];
+    }
+
+    moving = true;
+
+    moveOffset.x = p.x;
+    moveOffset.y = p.y;
+  }
+
+  /* DRAG SELECTION */
+  else{
+
+    selectedObjects = [];
+
+    dragSelect = true;
+
+    dragStart = p;
+    dragEnd = p;
+  }
+
+  render();
+});
+
+/* =========================
+   MOUSE MOVE
+========================= */
+
+canvas.addEventListener("mousemove", e=>{
+
+  const p = getMouse(e);
+
+  /* selection box */
+  if(dragSelect){
+
+    dragEnd = p;
+
+    render();
+  }
+
+  /* move objects */
+  if(moving){
+
+    const dx = p.x - moveOffset.x;
+    const dy = p.y - moveOffset.y;
+
+    selectedObjects.forEach(obj=>{
+
+      /* line */
+      if(obj.type === "line"){
+
+        obj.x1 += dx;
+        obj.y1 += dy;
+
+        obj.x2 += dx;
+        obj.y2 += dy;
+      }
+
+      /* circle */
+      else if(obj.type === "circle"){
+
+        obj.x += dx;
+        obj.y += dy;
+      }
+
+      /* text */
+      else if(obj.type === "text"){
+
+        obj.x += dx;
+        obj.y += dy;
+      }
+
+      /* dimension */
+      else if(obj.type === "dimension"){
+
+        obj.x1 += dx;
+        obj.y1 += dy;
+
+        obj.x2 += dx;
+        obj.y2 += dy;
+      }
+    });
+
+    moveOffset.x = p.x;
+    moveOffset.y = p.y;
+
+    render();
+  }
+});
+
+/* =========================
+   MOUSE UP
+========================= */
+
+canvas.addEventListener("mouseup", ()=>{
+
+  /* finish drag selection */
+  if(dragSelect){
+
+    selectObjectsInBox();
+
+    dragSelect = false;
+  }
+
+  moving = false;
+
+  render();
+});
+
+/* =========================
+   HIT TEST
+========================= */
+
+function hitObject(x,y){
+
+  const tol = 8;
+
+  /* lines */
+  for(const l of cad.lines){
+
+    const d = pointToSegmentDistance(
+      x,y,
+      l.x1,l.y1,
+      l.x2,l.y2
+    );
+
+    if(d < tol){
+
+      l.type = "line";
+
+      return l;
+    }
+  }
+
+  /* circles */
+  for(const c of cad.circles){
+
+    const dist = Math.hypot(
+      x - c.x,
+      y - c.y
+    );
+
+    if(Math.abs(dist - c.r) < tol){
+
+      c.type = "circle";
+
+      return c;
+    }
+  }
+
+  /* text */
+  for(const t of cad.texts){
+
+    if(
+      x > t.x &&
+      x < t.x + 80 &&
+      y < t.y &&
+      y > t.y - 20
+    ){
+
+      t.type = "text";
+
+      return t;
+    }
+  }
+
+  /* dimensions */
+  for(const d of cad.dimensions){
+
+    const dist = pointToSegmentDistance(
+      x,y,
+      d.x1,d.y1,
+      d.x2,d.y2
+    );
+
+    if(dist < tol){
+
+      d.type = "dimension";
+
+      return d;
+    }
+  }
+
+  return null;
+}
+
+/* =========================
+   BOX SELECT
+========================= */
+
+function selectObjectsInBox(){
+
+  const minX = Math.min(dragStart.x,dragEnd.x);
+  const maxX = Math.max(dragStart.x,dragEnd.x);
+
+  const minY = Math.min(dragStart.y,dragEnd.y);
+  const maxY = Math.max(dragStart.y,dragEnd.y);
+
+  selectedObjects = [];
+
+  cad.lines.forEach(l=>{
+
+    if(
+      inside(l.x1,l.y1,minX,maxX,minY,maxY) ||
+      inside(l.x2,l.y2,minX,maxX,minY,maxY)
+    ){
+
+      l.type = "line";
+
+      selectedObjects.push(l);
+    }
+  });
+
+  cad.circles.forEach(c=>{
+
+    if(
+      inside(c.x,c.y,minX,maxX,minY,maxY)
+    ){
+
+      c.type = "circle";
+
+      selectedObjects.push(c);
+    }
+  });
+
+  cad.texts.forEach(t=>{
+
+    if(
+      inside(t.x,t.y,minX,maxX,minY,maxY)
+    ){
+
+      t.type = "text";
+
+      selectedObjects.push(t);
+    }
+  });
+
+  cad.dimensions.forEach(d=>{
+
+    if(
+      inside(d.x1,d.y1,minX,maxX,minY,maxY) ||
+      inside(d.x2,d.y2,minX,maxX,minY,maxY)
+    ){
+
+      d.type = "dimension";
+
+      selectedObjects.push(d);
+    }
+  });
+}
+
+/* =========================
+   HELPERS
+========================= */
+
+function inside(x,y,minX,maxX,minY,maxY){
+
+  return (
+    x >= minX &&
+    x <= maxX &&
+    y >= minY &&
+    y <= maxY
+  );
+}
+
+function pointToSegmentDistance(
+  px,py,
+  x1,y1,
+  x2,y2
+){
+
+  const A = px - x1;
+  const B = py - y1;
+
+  const C = x2 - x1;
+  const D = y2 - y1;
+
+  const dot = A*C + B*D;
+
+  const len = C*C + D*D;
+
+  let t = dot / len;
+
+  t = Math.max(0,Math.min(1,t));
+
+  const xx = x1 + t*C;
+  const yy = y1 + t*D;
+
+  return Math.hypot(px-xx,py-yy);
+}
+
+/* =========================
+   RENDER SELECTION
+========================= */
+
+function renderSelection(){
+
+  /* drag rectangle */
+  if(dragSelect){
+
+    ctx.strokeStyle = "#4a90ff";
+
+    ctx.setLineDash([5,5]);
+
+    ctx.strokeRect(
+      dragStart.x,
+      dragStart.y,
+      dragEnd.x - dragStart.x,
+      dragEnd.y - dragStart.y
+    );
+
+    ctx.setLineDash([]);
+  }
+
+  /* highlight selected */
+  selectedObjects.forEach(obj=>{
+
+    ctx.strokeStyle = "#4a90ff";
+
+    ctx.lineWidth = 2;
+
+    if(obj.type === "line"){
+
+      line(
+        obj.x1,obj.y1,
+        obj.x2,obj.y2
+      );
+    }
+
+    else if(obj.type === "circle"){
+
+      ctx.beginPath();
+
+      ctx.arc(
+        obj.x,
+        obj.y,
+        obj.r,
+        0,
+        Math.PI*2
+      );
+
+      ctx.stroke();
+    }
+  });
+}
+
+<button id="toolSelect">Select</button>
+
+/* =========================
+   LAYERS SYSTEM
+========================= */
+
+const Layers = {
+
+  active:"0",
+
+  init(){
+
+    /* default layer */
+    if(!cad.layers){
+
+      cad.layers = [
+        {
+          name:"0",
+          color:"#000000",
+          visible:true
+        }
+      ];
+    }
+
+    this.render();
+  },
+
+  render(){
+
+    const select =
+      document.getElementById("layerSelect");
+
+    select.innerHTML = "";
+
+    cad.layers.forEach(layer=>{
+
+      const option =
+        document.createElement("option");
+
+      option.value = layer.name;
+
+      option.textContent =
+        layer.name;
+
+      option.style.color =
+        layer.color;
+
+      if(layer.name === this.active){
+        option.selected = true;
+      }
+
+      select.appendChild(option);
+    });
+  },
+
+  add(){
+
+    const name =
+      prompt("Layer name");
+
+    if(!name) return;
+
+    if(cad.layers.find(l=>l.name === name)){
+      alert("Layer exists");
+      return;
+    }
+
+    const color =
+      prompt("Color HEX","#000000");
+
+    cad.layers.push({
+      name,
+      color:color || "#000000",
+      visible:true
+    });
+
+    this.render();
+  },
+
+  set(name){
+
+    this.active = name;
+
+    cad.layer = name;
+
+    const layer =
+      cad.layers.find(
+        l=>l.name === name
+      );
+
+    if(layer){
+
+      cad.color = layer.color;
+    }
+  },
+
+  toggle(name){
+
+    const layer =
+      cad.layers.find(
+        l=>l.name === name
+      );
+
+    if(!layer) return;
+
+    layer.visible =
+      !layer.visible;
+
+    render();
+  },
+
+  color(name){
+
+    const layer =
+      cad.layers.find(
+        l=>l.name === name
+      );
+
+    if(!layer) return;
+
+    const color =
+      prompt(
+        "Layer color",
+        layer.color
+      );
+
+    if(!color) return;
+
+    layer.color = color;
+
+    render();
+
+    this.render();
+  }
+};
+
+/* =========================
+   OBJECTS USE ACTIVE LAYER
+========================= */
+
+/* line example */
+cad.lines.push({
+  x1,y1,
+  x2,y2,
+  color:cad.color,
+  layer:cad.layer
+});
+
+/* circle example */
+cad.circles.push({
+  x,y,r,
+  color:cad.color,
+  layer:cad.layer
+});
+
+/* text example */
+cad.texts.push({
+  x,y,text,
+  color:cad.color,
+  layer:cad.layer
+});
+
+/* dimensions example */
+cad.dimensions.push({
+  x1,y1,x2,y2,
+  color:cad.color,
+  layer:cad.layer
+});
+
+/* =========================
+   VISIBILITY FILTER
+========================= */
+
+function layerVisible(layerName){
+
+  const layer =
+    cad.layers.find(
+      l=>l.name === layerName
+    );
+
+  if(!layer) return true;
+
+  return layer.visible;
+}
+
+/* =========================
+   RENDER LINES
+========================= */
+
+function renderLines(){
+
+  cad.lines.forEach(l=>{
+
+    if(!layerVisible(l.layer))
+      return;
+
+    ctx.strokeStyle =
+      l.color || "#000";
+
+    ctx.lineWidth =
+      l.width || 1;
+
+    line(
+      l.x1,l.y1,
+      l.x2,l.y2
+    );
+  });
+}
+
+/* =========================
+   RENDER CIRCLES
+========================= */
+
+function renderCircles(){
+
+  cad.circles.forEach(c=>{
+
+    if(!layerVisible(c.layer))
+      return;
+
+    ctx.strokeStyle =
+      c.color || "#000";
+
+    ctx.lineWidth =
+      c.width || 1;
+
+    ctx.beginPath();
+
+    ctx.arc(
+      c.x,
+      c.y,
+      c.r,
+      0,
+      Math.PI*2
+    );
+
+    ctx.stroke();
+  });
+}
+
+/* =========================
+   RENDER TEXTS
+========================= */
+
+function renderTexts(){
+
+  cad.texts.forEach(t=>{
+
+    if(!layerVisible(t.layer))
+      return;
+
+    ctx.save();
+
+    ctx.translate(t.x,t.y);
+
+    ctx.rotate(
+      t.rotation *
+      Math.PI/180
+    );
+
+    ctx.fillStyle =
+      t.color || "#000";
+
+    ctx.font =
+      `${t.size*3.78}px Arial`;
+
+    ctx.fillText(
+      t.text,
+      0,
+      0
+    );
+
+    ctx.restore();
+  });
+}
+
+/* =========================
+   RENDER DIMENSIONS
+========================= */
+
+function renderDimensions(){
+
+  cad.dimensions.forEach(d=>{
+
+    if(!layerVisible(d.layer))
+      return;
+
+    /* existing dimension code */
+  });
+}
+
+/* =========================
+   EVENTS
+========================= */
+
+document
+.getElementById("layerSelect")
+.onchange = e=>{
+
+  Layers.set(e.target.value);
+};
+
+document
+.getElementById("addLayer")
+.onclick = ()=>{
+
+  Layers.add();
+};
+
+document
+.getElementById("toggleLayer")
+.onclick = ()=>{
+
+  Layers.toggle(
+    Layers.active
+  );
+};
+
+document
+.getElementById("colorLayer")
+.onclick = ()=>{
+
+  Layers.color(
+    Layers.active
+  );
+};
+
+/* =========================
+   INIT
+========================= */
+
+Layers.init();
+
+<div class="layers-bar">
+
+  <select id="layerSelect"></select>
+
+  <button id="addLayer">
+    +
+  </button>
+
+  <button id="toggleLayer">
+    👁
+  </button>
+
+  <button id="colorLayer">
+    🎨
+  </button>
+
+</div>
+
+cad = {
+
+  layer:"0",
+
+  color:"#000000",
+
+  layers:[
+    {
+      name:"0",
+      color:"#000000",
+      visible:true
+    },
+    {
+      name:"Dimensions",
+      color:"#0066ff",
+      visible:true
+    },
+    {
+      name:"Text",
+      color:"#008800",
+      visible:true
+    },
+    {
+      name:"Construction",
+      color:"#999999",
+      visible:true
+    }
+  ],
+
+  lines:[],
+  circles:[],
+  texts:[],
+  dimensions:[]
+};

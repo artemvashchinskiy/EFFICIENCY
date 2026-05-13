@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Calculator</title>
+
+<style>
+:root{
+  --bg:#d4d4d4;
+  --panel:#e6e6e6;
+  --border:#999;
+}
+
+*{
+  box-sizing:border-box;
+}
+
+body{
+  margin:0;
+  background:var(--bg);
+  font-family:Segoe UI;
+  display:flex;
+  justify-content:center;
+  padding:20px;
+}
+
+.app{
+  width:100%;
+  max-width:420px;
+  background:var(--panel);
+  border:1px solid var(--border);
+}
+
+.topbar{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px;
+  border-bottom:1px solid var(--border);
+}
+
+.back{
+  width:32px;
+  height:32px;
+  border:1px solid #888;
+  background:#eee;
+  cursor:pointer;
+}
+
+.title{
+  font-weight:600;
+}
+
+.calc{
+  padding:14px;
+}
+
+.display{
+  width:100%;
+  height:60px;
+  margin-bottom:12px;
+  border:1px solid #888;
+  background:#f8f8f8;
+  font-size:28px;
+  text-align:right;
+  padding:10px;
+}
+
+.buttons{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:8px;
+}
+
+.btn{
+  height:58px;
+  border:1px solid #888;
+  background:#efefef;
+  font-size:18px;
+  cursor:pointer;
+  transition:.12s;
+}
+
+.btn:hover{
+  background:#fff;
+}
+
+.btn.op{
+  background:#ddd;
+}
+
+.btn.equal{
+  background:#cfd8ff;
+}
+
+@media(max-width:500px){
+
+  body{
+    padding:0;
+  }
+
+  .app{
+    max-width:none;
+    min-height:100vh;
+  }
+
+  .display{
+    font-size:24px;
+  }
+
+  .btn{
+    height:64px;
+    font-size:20px;
+  }
+}
+</style>
+</head>
+
+<body>
+
+<div class="app">
+
+  <div class="topbar">
+    <button class="back" onclick="location.href='index.html'">←</button>
+    <div class="title">Calculator</div>
+  </div>
+
+  <div class="calc">
+
+    <input
+      id="display"
+      class="display"
+      readonly
+    >
+
+    <div class="buttons">
+
+      <button class="btn" data-key="7">7</button>
+      <button class="btn" data-key="8">8</button>
+      <button class="btn" data-key="9">9</button>
+      <button class="btn op" data-key="/">÷</button>
+
+      <button class="btn" data-key="4">4</button>
+      <button class="btn" data-key="5">5</button>
+      <button class="btn" data-key="6">6</button>
+      <button class="btn op" data-key="*">×</button>
+
+      <button class="btn" data-key="1">1</button>
+      <button class="btn" data-key="2">2</button>
+      <button class="btn" data-key="3">3</button>
+      <button class="btn op" data-key="-">−</button>
+
+      <button class="btn" data-key="0">0</button>
+      <button class="btn" data-key=".">.</button>
+      <button class="btn equal" data-key="=">=</button>
+      <button class="btn op" data-key="+">+</button>
+
+      <button class="btn op" data-key="sqrt">√</button>
+      <button class="btn op" data-key="pow">x²</button>
+      <button class="btn" data-key="←">←</button>
+      <button class="btn" data-key="C">C</button>
+
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+
+/* ===== AUTH CHECK ===== */
+const t = localStorage.getItem("login_time");
+
+if(!t || Date.now() - t > 10*60*60*1000){
+  location.href = "index.html";
+}
+
+/* ===== CALC ===== */
+const display = document.getElementById("display");
+
+let expr = "";
+
+function evaluateExpression(){
+  try{
+    expr = String(
+      Function(
+        `return (${expr.replace(/[^0-9+\-*/().]/g,"")})`
+      )()
+    );
+
+    if(expr === "undefined") expr = "";
+
+  }catch{
+    expr = "Error";
+  }
+}
+
+document.querySelector(".buttons").addEventListener("click", e => {
+
+  const key = e.target.dataset.key;
+
+  if(!key) return;
+
+  /* CLEAR */
+  if(key === "C"){
+    expr = "";
+  }
+
+  /* SQRT */
+  else if(key === "sqrt"){
+
+    try{
+      const value = Function(
+        `return (${expr.replace(/[^0-9+\-*/().]/g,"")})`
+      )();
+
+      expr = String(Math.sqrt(value));
+
+    }catch{
+      expr = "Error";
+    }
+  }
+
+  /* POWER */
+  else if(key === "pow"){
+
+    try{
+      const value = Function(
+        `return (${expr.replace(/[^0-9+\-*/().]/g,"")})`
+      )();
+
+      expr = String(Math.pow(value, 2));
+
+    }catch{
+      expr = "Error";
+    }
+  }
+
+  /* BACKSPACE */
+  else if(key === "←"){
+    expr = expr.slice(0,-1);
+  }
+
+  /* EQUAL */
+  else if(key === "="){
+    evaluateExpression();
+  }
+
+  /* NORMAL KEYS */
+  else{
+
+    if(expr === "Error") expr = "";
+
+    expr += key;
+  }
+
+  display.value = expr;
+});
+
+/* ===== KEYBOARD ===== */
+document.addEventListener("keydown", e => {
+
+  const allowed = "0123456789+-*/().";
+
+  /* NORMAL INPUT */
+  if(allowed.includes(e.key)){
+
+    if(expr === "Error") expr = "";
+
+    expr += e.key;
+  }
+
+  /* ENTER */
+  else if(e.key === "Enter"){
+
+    e.preventDefault();
+
+    evaluateExpression();
+  }
+
+  /* BACKSPACE */
+  else if(e.key === "Backspace"){
+    expr = expr.slice(0,-1);
+  }
+
+  /* CLEAR */
+  else if(e.key.toLowerCase() === "c"){
+    expr = "";
+  }
+
+  /* POWER */
+  else if(e.key === "^"){
+
+    try{
+      const value = Function(
+        `return (${expr.replace(/[^0-9+\-*/().]/g,"")})`
+      )();
+
+      expr = String(Math.pow(value, 2));
+
+    }catch{
+      expr = "Error";
+    }
+  }
+
+  display.value = expr;
+});
+
+</script>
+
+</body>
+</html>
