@@ -110,7 +110,7 @@ button{
   border:1px solid #888;
   background:#eee;
   cursor:pointer;
-  padding:3px 6px;
+  padding:3px 14px;
 }
 </style>
 </head>
@@ -170,9 +170,10 @@ const Todo = {
     if(!text.trim()) return;
 
     Store.update(data => {
-      data.todos.push({
+      data.todos.unshift({
         id: Date.now(),
-        text
+        text,
+        created: new Date().toLocaleString()
       });
     });
 
@@ -201,10 +202,16 @@ const UI = {
       const row = document.createElement("div");
       row.className = "item";
 
-      row.innerHTML = `
-        <span>${t.text}</span>
-        <button onclick="Todo.remove(${t.id})">✕</button>
-      `;
+    row.innerHTML = `
+      <div>
+        <div>${t.text}</div>
+        <small style="color:#666;font-size:11px;">
+          ${t.created || ""}
+        </small>
+      </div>
+
+      <button onclick="Todo.remove(${t.id})">✕</button>
+    `;
 
       el.appendChild(row);
     });

@@ -229,37 +229,62 @@ const State = {
 const Timer = {
 
   set(min){
+
+    clearInterval(this.loop);
+
+    State.running = false;
+    State.startTime = null;
+    State.accumulated = 0;
+
     State.planned = min * 60;
     State.finished = false;
-    UI.renderTimer(State.planned); 
-    // UI.renderTimer(min * 60);
+
+    clearInterval(State.flashLoop);
+
+    document.body.style.background = "var(--bg)";
+    document.title = "Focus OS";
+
+    UI.renderTimer(0);
+
+    this.saveLive();
   },
-  
+
   start(){
+
     if(State.running) return;
 
     State.running = true;
     State.finished = false;
+
     State.startTime = Date.now();
 
-    this.saveLive();
+    clearInterval(this.loop);
 
     this.loop = setInterval(()=>{
+
       const t = this.getCurrentTime();
 
       UI.renderTimer(t);
 
-    if(State.planned && t >= State.planned && !State.finished){
-      this.triggerFinish();
-    }
+      if(
+        State.planned &&
+        t >= State.planned &&
+        !State.finished
+      ){
+        this.triggerFinish();
+      }
 
     }, 500);
+
+    this.saveLive();
   },
 
   pause(){
+
     if(!State.running) return;
 
     State.accumulated = this.getCurrentTime();
+
     State.running = false;
 
     clearInterval(this.loop);
@@ -272,11 +297,8 @@ const Timer = {
     const currentTime = this.getCurrentTime();
 
     State.running = false;
+
     clearInterval(this.loop);
-
-    State.accumulated = currentTime;
-
-    this.saveLive();
 
     const name =
       document.getElementById("sessionName")?.value || "Session";
@@ -308,6 +330,7 @@ const Timer = {
   },
 
   triggerFinish(){
+
     if(State.finished) return;
 
     State.finished = true;
@@ -317,14 +340,22 @@ const Timer = {
     document.body.style.background = "#ffdddd";
 
     let flag = true;
+
     clearInterval(State.flashLoop);
 
     State.flashLoop = setInterval(()=>{
-      document.title = flag ? "⏱ TIME UP! RELAX" : "Focus OS";
+
+      document.title =
+        flag ? "⏱ TIME UP!" : "Focus OS";
+
       flag = !flag;
+
     }, 800);
 
-    if ("Notification" in window && Notification.permission === "granted") {
+    if(
+      "Notification" in window &&
+      Notification.permission === "granted"
+    ){
       new Notification("⏱ Time is up!", {
         body: "Return to Focus OS"
       });
@@ -332,14 +363,20 @@ const Timer = {
   },
 
   getCurrentTime(){
-    if(!State.running) return State.accumulated;
 
-    const delta = Math.floor((Date.now() - State.startTime)/1000);
+    if(!State.running)
+      return State.accumulated;
+
+    const delta =
+      Math.floor((Date.now() - State.startTime)/1000);
+
     return State.accumulated + delta;
   },
 
   saveLive(){
+
     Store.update(data => {
+
       data.timer = {
         running: State.running,
         startTime: State.startTime,
@@ -347,11 +384,14 @@ const Timer = {
         planned: State.planned,
         finished: State.finished
       };
+
     });
   },
 
   restore(){
+
     const data = Store.get().timer;
+
     if(!data) return;
 
     State.running = data.running;
@@ -361,19 +401,26 @@ const Timer = {
     State.finished = data.finished || false;
 
     if(State.finished){
-      this.triggerFinish(); // restore finished state
-      return;
+      this.triggerFinish();
     }
 
     if(State.running){
+
+      clearInterval(this.loop);
+
       this.loop = setInterval(()=>{
+
         const t = this.getCurrentTime();
 
         UI.renderTimer(t);
 
-    if(State.planned && t >= State.planned && !State.finished){
-      this.triggerFinish();
-    }
+        if(
+          State.planned &&
+          t >= State.planned &&
+          !State.finished
+        ){
+          this.triggerFinish();
+        }
 
       }, 500);
     }

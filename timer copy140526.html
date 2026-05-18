@@ -176,14 +176,7 @@ button{
   <button onclick="Timer.pause()">Pause</button>
   <button onclick="Timer.finish()">Finish</button>
 </div>
-<div style="display:flex; gap:5px; margin-bottom:10px;">
-  <button onclick="UI.resetTimer()" style="flex:1;">
-    Reset Timer
-  </button>
-  <button onclick="UI.clearHistory()" style="flex:1;">
-    Clear History
-  </button>
-</div>
+
 <div id="sessions"></div>
 
 </div>
@@ -231,10 +224,9 @@ const Timer = {
   set(min){
     State.planned = min * 60;
     State.finished = false;
-    UI.renderTimer(State.planned); 
-    // UI.renderTimer(min * 60);
+    UI.renderTimer(0);
   },
-  
+
   start(){
     if(State.running) return;
 
@@ -249,9 +241,9 @@ const Timer = {
 
       UI.renderTimer(t);
 
-    if(State.planned && t >= State.planned && !State.finished){
-      this.triggerFinish();
-    }
+      if(State.planned && t >= State.planned){
+        this.triggerFinish();
+      }
 
     }, 500);
   },
@@ -263,30 +255,19 @@ const Timer = {
     State.running = false;
 
     clearInterval(this.loop);
-
     this.saveLive();
   },
 
   finish(){
+    this.pause();
 
-    const currentTime = this.getCurrentTime();
-
-    State.running = false;
-    clearInterval(this.loop);
-
-    State.accumulated = currentTime;
-
-    this.saveLive();
-
-    const name =
-      document.getElementById("sessionName")?.value || "Session";
+    const name = document.getElementById("sessionName")?.value || "Session";
 
     Store.update(data => {
-
       data.sessions.push({
         name,
         planned: State.planned,
-        actual: currentTime,
+        actual: State.accumulated,
         date: Date.now()
       });
 
@@ -299,36 +280,46 @@ const Timer = {
     State.finished = false;
 
     clearInterval(State.flashLoop);
-
     document.title = "Focus OS";
-    document.body.style.background = "var(--bg)";
 
     UI.renderTimer(0);
     UI.renderSessions();
   },
 
   triggerFinish(){
-    if(State.finished) return;
-
+    if(State.finished) return; // 🔒 hard lock
     State.finished = true;
 
-    this.saveLive();
+    this.pause();
 
-    document.body.style.background = "#ffdddd";
-
-    let flag = true;
-    clearInterval(State.flashLoop);
-
-    State.flashLoop = setInterval(()=>{
-      document.title = flag ? "⏱ TIME UP! RELAX" : "Focus OS";
-      flag = !flag;
-    }, 800);
-
+    /* ===== 1. SYSTEM NOTIFICATION ===== */
     if ("Notification" in window && Notification.permission === "granted") {
       new Notification("⏱ Time is up!", {
         body: "Return to Focus OS"
       });
     }
+
+    /* ===== 2. TITLE FLASH ===== */
+    let flag = true;
+    State.flashLoop = setInterval(()=>{
+      document.title = flag ? "⏱ TIME UP!" : "Focus OS";
+      flag = !flag;
+    }, 800);
+
+    /* ===== 3. VISUAL FEEDBACK ===== */
+    document.body.style.background = "#ffdddd";
+
+    /* ===== 4. TRY OPEN TAB (optional, not critical) ===== */
+    try{
+      window.open("timer.html?done=1", "_blank");
+    }catch(e){}
+
+    /* ===== 5. ALERT ONLY IF ACTIVE TAB ===== */
+    setTimeout(()=>{
+      if(document.hasFocus()){
+        alert("Time is up!");
+      }
+    }, 300);
   },
 
   getCurrentTime(){
@@ -371,9 +362,9 @@ const Timer = {
 
         UI.renderTimer(t);
 
-    if(State.planned && t >= State.planned && !State.finished){
-      this.triggerFinish();
-    }
+        if(State.planned && t >= State.planned){
+          this.triggerFinish();
+        }
 
       }, 500);
     }
@@ -404,27 +395,17 @@ const UI = {
 
     const sessions = Store.get().sessions;
 
-    [...sessions].reverse().forEach((s,reverseIndex)=>{
-      const i = sessions.length - 1 - reverseIndex;
+    sessions.forEach((s,i)=>{
       const row = document.createElement("div");
       row.className = "session";
 
       row.innerHTML = `
         <div>
           <div>${s.name}</div>
-
           <div class="small">
-            ${new Date(s.date).toLocaleDateString()}
-            ${new Date(s.date).toLocaleTimeString([],{
-              hour:'2-digit',
-              minute:'2-digit'
-            })}
-            |
-            planned: ${Math.ceil(s.planned/60)}m
-            |
-            used: ${Math.ceil(s.actual/60)}m
+            planned: ${Math.floor(s.planned/60)}m |
+            used: ${Math.floor(s.actual/60)}m
           </div>
-
         </div>
 
         <button onclick="UI.remove(${i})">✕</button>
@@ -455,35 +436,6 @@ const UI = {
 
     Timer.restore();
     this.renderSessions();
-  },
-
-  clearHistory(){
-    if(!confirm("Clear all sessions?")) return;
-    Store.update(data=>{
-      data.sessions = [];
-    });
-    this.renderSessions();
-  },
-
-  resetTimer(){
-    if(State.running){
-      Timer.pause();
-    }
-
-    State.accumulated = 0;
-    State.planned = 0;
-    State.startTime = null;
-    State.finished = false;
-
-    clearInterval(State.flashLoop);
-    document.body.style.background = "var(--bg)";
-    document.title = "Focus OS";
-
-    this.renderTimer(0);
-
-    Store.update(data => {
-      data.timer = null;
-    });
   }
 };
 
